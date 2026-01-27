@@ -3,29 +3,51 @@ package com.example.focusguard
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import com.example.focusguard.data.FocusRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
+/**
+ * Intercepts all notifications.
+ * When Focus Mode is ON: suppresses and stores metadata (NOT content).
+ * When Focus Mode is OFF: lets notifications pass through.
+ */
 class NotificationListener : NotificationListenerService() {
 
-    // This function is called by the system whenever a new notification is posted.
+    private lateinit var repository: FocusRepository
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    override fun onCreate() {
+        super.onCreate()
+        repository = FocusRepository(applicationContext)
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         super.onNotificationPosted(sbn)
 
-        // For our MVP, we'll focus on messaging apps. Let's start with WhatsApp.
-        val packageName = sbn.packageName
-        if (packageName == "com.whatsapp") {
-            val notification = sbn.notification
-            val extras = notification.extras
-            val title = extras.getString("android.title")
-            val text = extras.getCharSequence("android.text")?.toString()
+        // 1. Check Focus Mode
+        if (!repository.isFocusModeActive()) {
+            return // Let notification pass through normally
+        }
 
-            // We use Log.d to print information to the Logcat, which is like a developer's console.
-            // This is perfect for checking that our service is working.
-            // 'd' stands for 'debug'.
-            Log.d("NotificationListener", "WhatsApp Notification: Title='$title', Text='$text'")
+        // 2. Extract METADATA only (privacy-first)
+        val packageName = sbn.packageName
+        val extras = sbn.notification.extras
+        val senderName = extras.getString("android.title") ?: "Unknown"
+        // NOTE: We do NOT extract android.text - privacy first!
+
+        // 3. Suppress notification
+        cancelNotification(sbn.key)
+        Log.d("FocusGuard", "Suppressed: $senderName from $packageName")
+
+        // 4. Store metadata in database
+        scope.launch {
+            repository.saveNotification(senderName, packageName)
         }
     }
 
-    // This is called when a notification is removed. We don't need it for now.
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         super.onNotificationRemoved(sbn)
     }
