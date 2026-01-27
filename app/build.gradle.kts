@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "com.example.focusguard"
-    compileSdk = 36
+    compileSdk {
+        version = release(36)
+    }
 
     defaultConfig {
         applicationId = "com.example.focusguard"
@@ -50,13 +52,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-    
-    // Coroutines
-    implementation(libs.kotlinx.coroutines.android)
-    
-    // ViewModel Compose
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
