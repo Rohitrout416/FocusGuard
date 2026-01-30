@@ -5,20 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.focusguard.data.FocusRepository
 import com.example.focusguard.data.NotificationEntity
+import com.example.focusguard.data.SenderScoreEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/**
- * ViewModel for the main screen.
- * 
- * PRIORITY LOGIC (from Repository):
- * - Priority tab: Senders with userFeedback >= 0 AND not marked spam
- * - Spam tab: Senders explicitly marked as spam
- * - VIP: Senders with userFeedback >= 3 → notifications pass through Focus Mode
- */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = FocusRepository(application)
@@ -27,17 +20,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _focusModeActive = MutableStateFlow(repository.isFocusModeActive())
     val focusModeActive: StateFlow<Boolean> = _focusModeActive
 
-    // Priority notifications (from repository, DB-level filtering)
+    // Notifications (Filtered)
     val priorityNotifications: StateFlow<List<NotificationEntity>> = repository
-        .getPriorityNotifications()
+        .getPrimaryNotifications()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Spam notifications (from repository, DB-level filtering)
     val spamNotifications: StateFlow<List<NotificationEntity>> = repository
         .getSpamNotifications()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // No init needed - duplicates are prevented at insert time
+    // All Senders (For Settings)
+    val allSenders: StateFlow<List<SenderScoreEntity>> = repository
+        .getAllSenders()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun toggleFocusMode() {
         val newState = !_focusModeActive.value
@@ -51,17 +46,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun markImportant(notification: NotificationEntity) {
+    // Quick Actions from Main Screen
+    fun markAsPrimary(notification: NotificationEntity) {
         viewModelScope.launch {
             val senderId = "${notification.packageName}:${notification.senderName}"
-            repository.markAsImportant(senderId)
+            repository.setSenderPrimary(senderId, true)
         }
     }
 
-    fun markSpam(notification: NotificationEntity) {
+    fun markAsSpam(notification: NotificationEntity) {
         viewModelScope.launch {
             val senderId = "${notification.packageName}:${notification.senderName}"
-            repository.markAsSpam(senderId)
+            repository.setSenderPrimary(senderId, false)
+        }
+    }
+
+    // Settings Toggle Actions
+    fun updateSenderConfig(senderId: String, isPrimary: Boolean, isVip: Boolean) {
+        viewModelScope.launch {
+            repository.setSenderPrimary(senderId, isPrimary)
+            repository.setSenderVip(senderId, isVip)
         }
     }
 }

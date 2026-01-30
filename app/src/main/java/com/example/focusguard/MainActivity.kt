@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +25,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.focusguard.data.NotificationEntity
 import com.example.focusguard.ui.MainViewModel
+import com.example.focusguard.ui.SettingsScreen
 import com.example.focusguard.ui.theme.FocusGuardTheme
 import java.text.SimpleDateFormat
 import java.util.*
@@ -34,15 +36,36 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             FocusGuardTheme {
-                MainScreen()
+                AppNavigation()
             }
         }
     }
 }
 
+@Composable
+fun AppNavigation(viewModel: MainViewModel = viewModel()) {
+    // Basic state-based navigation
+    var currentScreen by remember { mutableStateOf("home") }
+
+    if (currentScreen == "settings") {
+        SettingsScreen(
+            viewModel = viewModel,
+            onBack = { currentScreen = "home" }
+        )
+    } else {
+        MainScreen(
+            viewModel = viewModel,
+            onNavigateToSettings = { currentScreen = "settings" }
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel = viewModel()) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    onNavigateToSettings: () -> Unit
+) {
     val context = LocalContext.current
     val isPermissionGranted = NotificationManagerCompat
         .getEnabledListenerPackages(context)
@@ -58,6 +81,11 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         topBar = {
             TopAppBar(
                 title = { Text("FocusGuard") },
+                actions = {
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
@@ -103,14 +131,14 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     Column {
                         Text("Focus Mode", fontWeight = FontWeight.Bold)
                         Text(
-                            if (focusModeActive) "Notifications are blocked" else "Notifications pass through",
+                            if (focusModeActive) "Notifications blocked (except VIP)" else "Notifications pass through",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Switch(
                         checked = focusModeActive,
-                        onCheckedChange = { viewModel.toggleFocusMode() }
+                        onCheckedChange = { viewModel.toggleFocusMode() } // Only manual toggle
                     )
                 }
             }
@@ -122,7 +150,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Priority (${priorityNotifications.size})") }
+                    text = { Text("Primary (${priorityNotifications.size})") }
                 )
                 Tab(
                     selected = selectedTab == 1,
@@ -134,8 +162,8 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             Spacer(Modifier.height(8.dp))
 
             // Clear All Button
-            if ((selectedTab == 0 && priorityNotifications.isNotEmpty()) ||
-                (selectedTab == 1 && spamNotifications.isNotEmpty())) {
+            val currentList = if (selectedTab == 0) priorityNotifications else spamNotifications
+            if (currentList.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -145,9 +173,6 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     }
                 }
             }
-
-            // Notification List
-            val currentList = if (selectedTab == 0) priorityNotifications else spamNotifications
             
             if (currentList.isEmpty()) {
                 Box(
@@ -157,7 +182,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        if (selectedTab == 0) "No priority notifications" else "No spam",
+                        if (selectedTab == 0) "No primary messages" else "No spam messages",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -166,10 +191,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     items(currentList, key = { it.id }) { notification ->
                         NotificationItem(
                             notification = notification,
-                            onMarkImportant = { viewModel.markImportant(notification) },
-                            onMarkSpam = { viewModel.markSpam(notification) },
+                            onMarkPrimary = { viewModel.markAsPrimary(notification) },
+                            onMarkSpam = { viewModel.markAsSpam(notification) },
                             onOpenApp = {
-                                // Open the original app
                                 val launchIntent = context.packageManager
                                     .getLaunchIntentForPackage(notification.packageName)
                                 if (launchIntent != null) {
@@ -181,20 +205,12 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 }
             }
 
-            // Privacy Note
+            // Info Footer
             Text(
-                "🔒 Only sender names stored - NO message content",
+                "Use Settings ⚙️ to configure Primary/Spam and VIP sources.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
-            )
-
-            // VIP Tip
-            Text(
-                "⭐ Mark sender important 3x = VIP (notifications pass through Focus Mode)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 4.dp)
             )
         }
     }
@@ -203,7 +219,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
 @Composable
 fun NotificationItem(
     notification: NotificationEntity,
-    onMarkImportant: () -> Unit,
+    onMarkPrimary: () -> Unit,
     onMarkSpam: () -> Unit,
     onOpenApp: () -> Unit
 ) {
@@ -229,18 +245,13 @@ fun NotificationItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(
-                    "Tap to open app",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
             }
             Row {
-                IconButton(onClick = onMarkImportant) {
-                    Icon(Icons.Default.Star, "Mark Important", tint = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = onMarkPrimary) {
+                    Icon(Icons.Default.Star, "Make Primary", tint = MaterialTheme.colorScheme.primary)
                 }
                 IconButton(onClick = onMarkSpam) {
-                    Icon(Icons.Default.Delete, "Mark Spam", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Default.Delete, "Mark as Spam", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }

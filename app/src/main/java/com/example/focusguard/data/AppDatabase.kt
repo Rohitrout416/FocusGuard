@@ -38,8 +38,11 @@ interface SenderScoreDao {
     @Query("SELECT * FROM sender_score_table WHERE senderId = :id LIMIT 1")
     suspend fun getSenderScore(id: String): SenderScoreEntity?
     
-    // Get all senders with score >= 3 (VIPs)
-    @Query("SELECT senderId FROM sender_score_table WHERE userFeedback >= 3")
+    @Query("SELECT * FROM sender_score_table ORDER BY lastUpdated DESC")
+    fun getAllSenders(): Flow<List<SenderScoreEntity>>
+    
+    // VIPs = isVip (Focus Mode Bypass)
+    @Query("SELECT senderId FROM sender_score_table WHERE isVip = 1")
     fun getVipSenderIds(): Flow<List<String>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -48,7 +51,7 @@ interface SenderScoreDao {
 
 @Database(
     entities = [NotificationEntity::class, SenderScoreEntity::class], 
-    version = 2, 
+    version = 3,  // Bumped for schema change
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

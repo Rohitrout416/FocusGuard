@@ -7,6 +7,14 @@ import kotlinx.coroutines.flow.map
 
 /**
  * Repository that manages Focus Mode state and notification data.
+ * 
+ * CATEGORIZATION LOGIC:
+ * - Primary: Sender has isPrimary = true
+ * - Spam (Secondary): Sender has isPrimary = false (Default)
+ * 
+ * FOCUS MODE LOGIC:
+ * - Blocked: Focus Mode ON AND Sender isVip = false
+ * - Allowed: Focus Mode OFF OR Sender isVip = true
  */
 class FocusRepository(context: Context) {
     private val prefs = context.getSharedPreferences("focusguard_prefs", Context.MODE_PRIVATE)
@@ -16,7 +24,6 @@ class FocusRepository(context: Context) {
 
     companion object {
         private const val KEY_FOCUS_MODE = "focus_mode_active"
-        private const val VIP_THRESHOLD = 3
         private const val DUPLICATE_WINDOW_MS = 5000L
     }
 
@@ -30,31 +37,38 @@ class FocusRepository(context: Context) {
         prefs.edit().putBoolean(KEY_FOCUS_MODE, active).apply()
     }
 
-    // ========== VIP Senders ==========
+    // ========== VIP / Primary Configuration ==========
     
-    // Original suspend check (DB lookup) - useful if needed ad-hoc
-    suspend fun isVipSender(senderId: String): Boolean {
-        val score = senderScoreDao.getSenderScore(senderId)
-        return score != null && score.userFeedback >= VIP_THRESHOLD
+    fun getAllSenders(): Flow<List<SenderScoreEntity>> {
+        return senderScoreDao.getAllSenders()
     }
     
-    // New: Observable VIP list for caching
     fun getVipSendersFlow(): Flow<Set<String>> {
         return senderScoreDao.getVipSenderIds().map { it.toSet() }
     }
 
-    // ========== Notifications ==========
-    
-    fun getAllNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications()
+    suspend fun setSenderPrimary(senderId: String, isPrimary: Boolean) {
+        val existing = senderScoreDao.getSenderScore(senderId)
+        val newItem = existing?.copy(isPrimary = isPrimary, lastUpdated = System.currentTimeMillis()) 
+            ?: SenderScoreEntity(senderId = senderId, isPrimary = isPrimary)
+        senderScoreDao.upsert(newItem)
     }
 
-    fun getPriorityNotifications(): Flow<List<NotificationEntity>> {
+    suspend fun setSenderVip(senderId: String, isVip: Boolean) {
+        val existing = senderScoreDao.getSenderScore(senderId)
+        val newItem = existing?.copy(isVip = isVip, lastUpdated = System.currentTimeMillis()) 
+            ?: SenderScoreEntity(senderId = senderId, isVip = isVip)
+        senderScoreDao.upsert(newItem)
+    }
+
+    // ========== Notifications ==========
+    
+    fun getPrimaryNotifications(): Flow<List<NotificationEntity>> {
         return notificationDao.getAllNotifications().map { notifications ->
             notifications.filter { notif ->
                 val senderId = "${notif.packageName}:${notif.senderName}"
-                val score = senderScoreDao.getSenderScore(senderId)
-                score == null || (!score.isSpam)
+                val config = senderScoreDao.getSenderScore(senderId)
+                config?.isPrimary == true
             }
         }
     }
@@ -63,19 +77,27 @@ class FocusRepository(context: Context) {
         return notificationDao.getAllNotifications().map { notifications ->
             notifications.filter { notif ->
                 val senderId = "${notif.packageName}:${notif.senderName}"
-                val score = senderScoreDao.getSenderScore(senderId)
-                score?.isSpam == true
+                val config = senderScoreDao.getSenderScore(senderId)
+                // Default to SPAM if no config exists (or isPrimary is false)
+                config == null || config.isPrimary == false
             }
         }
     }
 
     suspend fun saveNotification(senderName: String, packageName: String) {
+        val senderId = "$packageName:$senderName"
+        
+        // Ensure sender exists in config (defaults to Spam/Non-VIP)
+        if (senderScoreDao.getSenderScore(senderId) == null) {
+            senderScoreDao.upsert(SenderScoreEntity(senderId = senderId))
+        }
+
+        // Duplicate Check
         val now = System.currentTimeMillis()
         val sinceTimestamp = now - DUPLICATE_WINDOW_MS
-        
         val recentCount = notificationDao.countRecentFromSender(packageName, senderName, sinceTimestamp)
+        
         if (recentCount > 0) {
-            Log.d("FocusGuard", "DB SKIP: Duplicate from $senderName")
             return
         }
 
@@ -85,61 +107,9 @@ class FocusRepository(context: Context) {
             timestamp = now
         )
         notificationDao.insert(entity)
-        
-        updateSenderStats("$packageName:$senderName")
     }
 
     suspend fun clearNotifications() {
         notificationDao.clearAll()
-    }
-
-    suspend fun deleteNotification(id: Int) {
-        notificationDao.delete(id)
-    }
-
-    // ========== Sender Scores ==========
-    
-    private suspend fun updateSenderStats(senderId: String) {
-        val existing = senderScoreDao.getSenderScore(senderId)
-        val now = System.currentTimeMillis()
-        
-        if (existing == null) {
-            senderScoreDao.upsert(
-                SenderScoreEntity(
-                    senderId = senderId,
-                    msgCount = 1,
-                    lastBurstTime = now
-                )
-            )
-        } else {
-            senderScoreDao.upsert(
-                existing.copy(
-                    msgCount = existing.msgCount + 1,
-                    lastBurstTime = now
-                )
-            )
-        }
-    }
-
-    suspend fun markAsImportant(senderId: String) {
-        val existing = senderScoreDao.getSenderScore(senderId)
-        if (existing != null) {
-            senderScoreDao.upsert(existing.copy(userFeedback = existing.userFeedback + 1, isSpam = false))
-        } else {
-            senderScoreDao.upsert(SenderScoreEntity(senderId = senderId, userFeedback = 1))
-        }
-    }
-
-    suspend fun markAsSpam(senderId: String) {
-        val existing = senderScoreDao.getSenderScore(senderId)
-        if (existing != null) {
-            senderScoreDao.upsert(existing.copy(userFeedback = existing.userFeedback - 1, isSpam = true))
-        } else {
-            senderScoreDao.upsert(SenderScoreEntity(senderId = senderId, userFeedback = -1, isSpam = true))
-        }
-    }
-
-    suspend fun isSpam(senderId: String): Boolean {
-        return senderScoreDao.getSenderScore(senderId)?.isSpam ?: false
     }
 }
