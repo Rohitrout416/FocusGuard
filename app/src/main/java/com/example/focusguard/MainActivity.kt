@@ -219,9 +219,13 @@ fun MainScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
+                    val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
                     Switch(
                         checked = focusModeActive,
-                        onCheckedChange = { viewModel.toggleFocusMode() }
+                        onCheckedChange = { 
+                            hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            viewModel.toggleFocusMode() 
+                        }
                     )
                     }
             }
