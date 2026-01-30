@@ -1,6 +1,5 @@
 package com.example.focusguard.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -9,7 +8,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.focusguard.data.SenderCategory
@@ -17,6 +15,8 @@ import com.example.focusguard.data.SenderCategory
 @Composable
 fun ClassificationBanner(
     senderName: String,
+    appName: String,
+    msgCount: Int,
     onCategorize: (SenderCategory) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -53,7 +53,7 @@ fun ClassificationBanner(
             }
             
             Text(
-                text = "How should we handle messages from '$senderName'?",
+                text = "$msgCount messages from '$senderName' on $appName",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(vertical = 8.dp)
             )

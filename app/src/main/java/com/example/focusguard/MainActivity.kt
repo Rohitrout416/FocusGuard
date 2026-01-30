@@ -28,6 +28,7 @@ import com.example.focusguard.ui.ClassificationBanner
 import com.example.focusguard.ui.MainViewModel
 import com.example.focusguard.ui.SettingsScreen
 import com.example.focusguard.ui.theme.FocusGuardTheme
+import com.example.focusguard.util.AppUtils
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -126,10 +127,15 @@ fun MainScreen(
 
             // Classification Banner
             if (senderToClassify != null) {
-                // Extract clean name
-                val name = senderToClassify.senderId.substringAfter(":")
+                // Extract clean name and app name
+                val packageName = senderToClassify.senderId.substringBefore(":")
+                val senderName = senderToClassify.senderId.substringAfter(":")
+                val appName = AppUtils.getAppName(context, packageName)
+
                 ClassificationBanner(
-                    senderName = name,
+                    senderName = senderName,
+                    appName = appName,
+                    msgCount = senderToClassify.msgCount,
                     onCategorize = { category ->
                         viewModel.categorizeSender(senderToClassify.senderId, category)
                     },
@@ -206,7 +212,9 @@ fun NotificationItem(
     onMarkSpam: () -> Unit,
     onOpenApp: () -> Unit
 ) {
+    val context = LocalContext.current
     val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    val appName = AppUtils.getAppName(context, notification.packageName)
 
     Card(
         modifier = Modifier
@@ -221,7 +229,7 @@ fun NotificationItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(notification.senderName, fontWeight = FontWeight.Medium)
                 Text(
-                    "${notification.packageName.substringAfterLast(".")} • ${dateFormat.format(Date(notification.timestamp))}",
+                    "$appName • ${dateFormat.format(Date(notification.timestamp))}",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
