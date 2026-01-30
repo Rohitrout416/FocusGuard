@@ -20,49 +20,46 @@ fun FocusTimeIndicator(
     currentSessionMs: Long,
     dailyTotalMs: Long
 ) {
-    if (currentSessionMs < 60000) return // Don't show if less than 1 minute (optional, or show "Just started")
-
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.7f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
+    // Show even if < 1m to give immediate feedback
+    
     val sessionMin = currentSessionMs / 60000
-    val dailyMin = dailyTotalMs / 60000
+    val sessionHours = sessionMin / 60
+    val displayMin = sessionMin % 60
+    
+    val formattedTime = if (sessionHours > 0) {
+        "%d:%02d".format(sessionHours, displayMin)
+    } else {
+        "${sessionMin}m"
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = 12.dp),
         horizontalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .alpha(alpha)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
+        Box(contentAlignment = Alignment.Center) {
+            // Indeterminate ring for active "pulse" feel
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(140.dp),
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 4.dp
+            )
+            
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "Focusing for ${sessionMin}m",
-                    style = MaterialTheme.typography.labelLarge,
+                    text = "IN FOCUS",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.alpha(0.8f)
+                )
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.displaySmall, // Bigger font
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
                 )
-                if (sessionMin != dailyMin) {
-                   Text(
-                        text = "Total today: ${dailyMin}m",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    ) 
-                }
             }
         }
     }

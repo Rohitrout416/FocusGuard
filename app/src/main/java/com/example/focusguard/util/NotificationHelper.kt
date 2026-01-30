@@ -68,4 +68,29 @@ object NotificationHelper {
             // Handle permission
         }
     }
+    fun showMilestoneNotification(
+        context: Context, 
+        hours: Int, 
+        disableIntent: PendingIntent
+    ) {
+        val message = "You've stayed focused for $hours hours. Keep it up! \uD83D\uDCAA"
+        
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm) // Using generic icon for now
+            .setContentTitle("🎉 Great Focus Session")
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .addAction(
+                android.R.drawable.ic_delete,
+                "Disable Focus Milestones",
+                disableIntent
+            )
+
+        try {
+             NotificationManagerCompat.from(context).notify(com.example.focusguard.receivers.MilestoneActionReceiver.NOTIFICATION_ID_MILESTONE, builder.build())
+        } catch (e: SecurityException) {
+            // Permission
+        }
+    }
 }

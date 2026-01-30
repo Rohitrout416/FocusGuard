@@ -20,9 +20,21 @@ class FocusRepository(private val context: Context) {
         private const val KEY_FOCUS_START_TIME = "focus_start_time"
         private const val KEY_DAILY_FOCUS_TOTAL = "daily_focus_total"
         private const val KEY_LAST_RESET_DAY = "last_reset_day"
+        private const val KEY_MILESTONES_ENABLED = "milestones_enabled"
     }
 
     // ========== Focus Mode ==========
+    
+    fun areMilestonesEnabled(): Boolean {
+        return prefs.getBoolean(KEY_MILESTONES_ENABLED, true) // Default true
+    }
+
+    fun setMilestonesEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MILESTONES_ENABLED, enabled).apply()
+        if (!enabled) {
+             androidx.work.WorkManager.getInstance(context).cancelUniqueWork("focus_milestone_work")
+        }
+    }
     
     fun isFocusModeActive(): Boolean {
         return prefs.getBoolean(KEY_FOCUS_MODE, false)
@@ -30,15 +42,35 @@ class FocusRepository(private val context: Context) {
 
     fun setFocusModeActive(active: Boolean) {
         val now = System.currentTimeMillis()
+        val workManager = androidx.work.WorkManager.getInstance(context)
+
         if (active) {
             // Start Session
             prefs.edit()
                 .putBoolean(KEY_FOCUS_MODE, true)
                 .putLong(KEY_FOCUS_START_TIME, now)
                 .apply()
+            
+            // Schedule Milestone Work (if enabled)
+            if (areMilestonesEnabled()) {
+                val milestoneWork = androidx.work.OneTimeWorkRequestBuilder<com.example.focusguard.workers.FocusMilestoneWorker>()
+                    .setInitialDelay(2, java.util.concurrent.TimeUnit.HOURS)
+                    .build()
+                
+                workManager.enqueueUniqueWork(
+                    "focus_milestone_work",
+                    androidx.work.ExistingWorkPolicy.REPLACE,
+                    milestoneWork
+                )
+            }
+
         } else {
             // End Session
             val startTime = prefs.getLong(KEY_FOCUS_START_TIME, 0L)
+            
+            // Cancel Milestone Work
+            workManager.cancelUniqueWork("focus_milestone_work")
+            
             if (startTime > 0) {
                 val sessionDuration = now - startTime
                 // Update Daily Total
