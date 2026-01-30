@@ -1,14 +1,24 @@
 package com.example.focusguard.data
 
 import android.content.Context
-import androidx.room.Dao
-import androidx.room.Database
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import androidx.room.Room
-import androidx.room.RoomDatabase
+import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+
+class Converters {
+    @TypeConverter
+    fun fromCategory(category: SenderCategory): String {
+        return category.name
+    }
+
+    @TypeConverter
+    fun toCategory(value: String): SenderCategory {
+        return try {
+            SenderCategory.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            SenderCategory.UNKNOWN
+        }
+    }
+}
 
 @Dao
 interface NotificationDao {
@@ -41,9 +51,11 @@ interface SenderScoreDao {
     @Query("SELECT * FROM sender_score_table ORDER BY lastUpdated DESC")
     fun getAllSenders(): Flow<List<SenderScoreEntity>>
     
-    // VIPs = isVip (Focus Mode Bypass)
-    @Query("SELECT senderId FROM sender_score_table WHERE isVip = 1")
+    @Query("SELECT senderId FROM sender_score_table WHERE category = 'VIP'")
     fun getVipSenderIds(): Flow<List<String>>
+
+    @Query("SELECT * FROM sender_score_table WHERE category = 'UNKNOWN'")
+    fun getUnknownSenders(): Flow<List<SenderScoreEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(senderScore: SenderScoreEntity)
@@ -51,9 +63,10 @@ interface SenderScoreDao {
 
 @Database(
     entities = [NotificationEntity::class, SenderScoreEntity::class], 
-    version = 3,  // Bumped for schema change
+    version = 5, 
     exportSchema = false
 )
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun senderScoreDao(): SenderScoreDao

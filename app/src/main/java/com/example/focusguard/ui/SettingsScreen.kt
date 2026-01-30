@@ -9,10 +9,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.focusguard.data.SenderCategory
 import com.example.focusguard.data.SenderScoreEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -26,7 +26,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings - Message Sources") },
+                title = { Text("Manage Senders") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -35,35 +35,25 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(16.dp)
         ) {
-            Text(
-                "Customize message behavior below:",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (senders.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No message sources found yet.")
-                }
-            } else {
-                LazyColumn {
-                    items(senders, key = { it.senderId }) { sender ->
-                        SenderConfigItem(
-                            sender = sender,
-                            onUpdate = { isPrimary, isVip ->
-                                viewModel.updateSenderConfig(sender.senderId, isPrimary, isVip)
-                            }
-                        )
-                        Divider()
+            item {
+                Text(
+                    "Categorize your message sources:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
+            
+            items(senders, key = { it.senderId }) { sender ->
+                SenderConfigItem(
+                    sender = sender,
+                    onUpdate = { category ->
+                        viewModel.categorizeSender(sender.senderId, category)
                     }
-                }
+                )
+                HorizontalDivider()
             }
         }
     }
@@ -72,63 +62,38 @@ fun SettingsScreen(
 @Composable
 fun SenderConfigItem(
     sender: SenderScoreEntity,
-    onUpdate: (isPrimary: Boolean, isVip: Boolean) -> Unit
+    onUpdate: (SenderCategory) -> Unit
 ) {
-    // senderId format: "package:Title"
     val parts = sender.senderId.split(":")
     val title = parts.getOrElse(1) { sender.senderId }
     val subtitle = parts.getOrNull(0) ?: ""
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp)
-    ) {
-        // Header
-        Text(text = title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-        Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(modifier = Modifier.padding(vertical = 12.dp)) {
+        Text(title, fontWeight = FontWeight.Bold)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(8.dp))
         
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Controls
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Primary Toggle
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Primary Section", fontWeight = FontWeight.Medium)
-                Text(
-                    if (sender.isPrimary) "Shows in Priority" else "Shows in Spam",
-                    style = MaterialTheme.typography.bodySmall
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = sender.category == SenderCategory.SPAM,
+                onClick = { onUpdate(SenderCategory.SPAM) },
+                label = { Text("Block") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.errorContainer
                 )
-            }
-            Switch(
-                checked = sender.isPrimary,
-                onCheckedChange = { onUpdate(it, sender.isVip) }
             )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // VIP Toggle
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Focus Bypass (VIP)", fontWeight = FontWeight.Medium)
-                Text(
-                    if (sender.isVip) "Can notify during Focus Mode" else "Blocked during Focus Mode",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (sender.isVip) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            FilterChip(
+                selected = sender.category == SenderCategory.PRIMARY || sender.category == SenderCategory.UNKNOWN,
+                onClick = { onUpdate(SenderCategory.PRIMARY) },
+                label = { Text("Primary") }
+            )
+            FilterChip(
+                selected = sender.category == SenderCategory.VIP,
+                onClick = { onUpdate(SenderCategory.VIP) },
+                label = { Text("VIP") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer
                 )
-            }
-            Switch(
-                checked = sender.isVip,
-                onCheckedChange = { onUpdate(sender.isPrimary, it) }
             )
         }
     }

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.focusguard.data.NotificationEntity
+import com.example.focusguard.ui.ClassificationBanner
 import com.example.focusguard.ui.MainViewModel
 import com.example.focusguard.ui.SettingsScreen
 import com.example.focusguard.ui.theme.FocusGuardTheme
@@ -44,7 +45,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppNavigation(viewModel: MainViewModel = viewModel()) {
-    // Basic state-based navigation
     var currentScreen by remember { mutableStateOf("home") }
 
     if (currentScreen == "settings") {
@@ -74,6 +74,13 @@ fun MainScreen(
     val focusModeActive by viewModel.focusModeActive.collectAsState()
     val priorityNotifications by viewModel.priorityNotifications.collectAsState()
     val spamNotifications by viewModel.spamNotifications.collectAsState()
+    
+    // Banner Logic
+    val uncategorizedSenders by viewModel.uncategorizedSenders.collectAsState()
+    val dismissed by viewModel.dismissedSenders.collectAsState()
+    
+    // Find first sender that is NOT dismissed
+    val senderToClassify = uncategorizedSenders.firstOrNull { !dismissed.contains(it.senderId) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -101,14 +108,13 @@ fun MainScreen(
             // Permission Card
             if (!isPermissionGranted) {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
                     )
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Permission Required", fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
                         Button(onClick = {
                             context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                         }) {
@@ -116,71 +122,59 @@ fun MainScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(16.dp))
+            }
+
+            // Classification Banner
+            if (senderToClassify != null) {
+                // Extract clean name
+                val name = senderToClassify.senderId.substringAfter(":")
+                ClassificationBanner(
+                    senderName = name,
+                    onCategorize = { category ->
+                        viewModel.categorizeSender(senderToClassify.senderId, category)
+                    },
+                    onDismiss = {
+                        viewModel.dismissBanner(senderToClassify.senderId)
+                    }
+                )
             }
 
             // Focus Mode Toggle
             Card(modifier = Modifier.fillMaxWidth()) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
                         Text("Focus Mode", fontWeight = FontWeight.Bold)
                         Text(
-                            if (focusModeActive) "Notifications blocked (except VIP)" else "Notifications pass through",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            if (focusModeActive) "Auto-blocking active" else "Notifications allowed",
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                     Switch(
                         checked = focusModeActive,
-                        onCheckedChange = { viewModel.toggleFocusMode() } // Only manual toggle
+                        onCheckedChange = { viewModel.toggleFocusMode() }
                     )
                 }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // Tab Row for Priority vs Spam
+            // Tabs
             TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Primary (${priorityNotifications.size})") }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Spam (${spamNotifications.size})") }
-                )
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Primary") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Spam") })
             }
 
             Spacer(Modifier.height(8.dp))
 
-            // Clear All Button
+            // List
             val currentList = if (selectedTab == 0) priorityNotifications else spamNotifications
-            if (currentList.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = { viewModel.clearAllNotifications() }) {
-                        Text("Clear All")
-                    }
-                }
-            }
             
             if (currentList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                     Text(
                         if (selectedTab == 0) "No primary messages" else "No spam messages",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -194,24 +188,13 @@ fun MainScreen(
                             onMarkPrimary = { viewModel.markAsPrimary(notification) },
                             onMarkSpam = { viewModel.markAsSpam(notification) },
                             onOpenApp = {
-                                val launchIntent = context.packageManager
-                                    .getLaunchIntentForPackage(notification.packageName)
-                                if (launchIntent != null) {
-                                    context.startActivity(launchIntent)
-                                }
+                                val launchIntent = context.packageManager.getLaunchIntentForPackage(notification.packageName)
+                                if (launchIntent != null) context.startActivity(launchIntent)
                             }
                         )
                     }
                 }
             }
-
-            // Info Footer
-            Text(
-                "Use Settings ⚙️ to configure Primary/Spam and VIP sources.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
-            )
         }
     }
 }
@@ -232,26 +215,22 @@ fun NotificationItem(
             .clickable { onOpenApp() }
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(notification.senderName, fontWeight = FontWeight.Medium)
                 Text(
                     "${notification.packageName.substringAfterLast(".")} • ${dateFormat.format(Date(notification.timestamp))}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
             Row {
                 IconButton(onClick = onMarkPrimary) {
-                    Icon(Icons.Default.Star, "Make Primary", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Star, "Primary")
                 }
                 IconButton(onClick = onMarkSpam) {
-                    Icon(Icons.Default.Delete, "Mark as Spam", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Default.Delete, "Spam")
                 }
             }
         }

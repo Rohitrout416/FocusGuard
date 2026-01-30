@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.focusguard.data.FocusRepository
 import com.example.focusguard.data.NotificationEntity
+import com.example.focusguard.data.SenderCategory
 import com.example.focusguard.data.SenderScoreEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,6 +35,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .getAllSenders()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Uncategorized Senders (For Banners)
+    val uncategorizedSenders: StateFlow<List<SenderScoreEntity>> = repository
+        .getUnknownSendersFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Locally dismissed sender IDs (to hide banner temporarily)
+    private val _dismissedSenders = MutableStateFlow<Set<String>>(emptySet())
+    val dismissedSenders: StateFlow<Set<String>> = _dismissedSenders
+
     fun toggleFocusMode() {
         val newState = !_focusModeActive.value
         repository.setFocusModeActive(newState)
@@ -46,26 +56,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Quick Actions from Main Screen
+    // Quick Actions
     fun markAsPrimary(notification: NotificationEntity) {
         viewModelScope.launch {
             val senderId = "${notification.packageName}:${notification.senderName}"
-            repository.setSenderPrimary(senderId, true)
+            repository.setSenderCategory(senderId, SenderCategory.PRIMARY)
         }
     }
 
     fun markAsSpam(notification: NotificationEntity) {
         viewModelScope.launch {
             val senderId = "${notification.packageName}:${notification.senderName}"
-            repository.setSenderPrimary(senderId, false)
+            repository.setSenderCategory(senderId, SenderCategory.SPAM)
         }
     }
 
-    // Settings Toggle Actions
-    fun updateSenderConfig(senderId: String, isPrimary: Boolean, isVip: Boolean) {
+    // Categorization Logic
+    fun categorizeSender(senderId: String, category: SenderCategory) {
         viewModelScope.launch {
-            repository.setSenderPrimary(senderId, isPrimary)
-            repository.setSenderVip(senderId, isVip)
+            repository.setSenderCategory(senderId, category)
         }
+    }
+
+    fun dismissBanner(senderId: String) {
+        _dismissedSenders.value = _dismissedSenders.value + senderId
     }
 }

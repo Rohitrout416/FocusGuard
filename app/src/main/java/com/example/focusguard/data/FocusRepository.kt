@@ -5,17 +5,6 @@ import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-/**
- * Repository that manages Focus Mode state and notification data.
- * 
- * CATEGORIZATION LOGIC:
- * - Primary: Sender has isPrimary = true
- * - Spam (Secondary): Sender has isPrimary = false (Default)
- * 
- * FOCUS MODE LOGIC:
- * - Blocked: Focus Mode ON AND Sender isVip = false
- * - Allowed: Focus Mode OFF OR Sender isVip = true
- */
 class FocusRepository(context: Context) {
     private val prefs = context.getSharedPreferences("focusguard_prefs", Context.MODE_PRIVATE)
     private val database = AppDatabase.getDatabase(context)
@@ -37,7 +26,7 @@ class FocusRepository(context: Context) {
         prefs.edit().putBoolean(KEY_FOCUS_MODE, active).apply()
     }
 
-    // ========== VIP / Primary Configuration ==========
+    // ========== Sender Configuration ==========
     
     fun getAllSenders(): Flow<List<SenderScoreEntity>> {
         return senderScoreDao.getAllSenders()
@@ -47,17 +36,14 @@ class FocusRepository(context: Context) {
         return senderScoreDao.getVipSenderIds().map { it.toSet() }
     }
 
-    suspend fun setSenderPrimary(senderId: String, isPrimary: Boolean) {
-        val existing = senderScoreDao.getSenderScore(senderId)
-        val newItem = existing?.copy(isPrimary = isPrimary, lastUpdated = System.currentTimeMillis()) 
-            ?: SenderScoreEntity(senderId = senderId, isPrimary = isPrimary)
-        senderScoreDao.upsert(newItem)
+    fun getUnknownSendersFlow(): Flow<List<SenderScoreEntity>> {
+        return senderScoreDao.getUnknownSenders()
     }
 
-    suspend fun setSenderVip(senderId: String, isVip: Boolean) {
+    suspend fun setSenderCategory(senderId: String, category: SenderCategory) {
         val existing = senderScoreDao.getSenderScore(senderId)
-        val newItem = existing?.copy(isVip = isVip, lastUpdated = System.currentTimeMillis()) 
-            ?: SenderScoreEntity(senderId = senderId, isVip = isVip)
+        val newItem = existing?.copy(category = category, lastUpdated = System.currentTimeMillis()) 
+            ?: SenderScoreEntity(senderId = senderId, category = category)
         senderScoreDao.upsert(newItem)
     }
 
@@ -68,7 +54,7 @@ class FocusRepository(context: Context) {
             notifications.filter { notif ->
                 val senderId = "${notif.packageName}:${notif.senderName}"
                 val config = senderScoreDao.getSenderScore(senderId)
-                config?.isPrimary == true
+                config != null && (config.category == SenderCategory.VIP || config.category == SenderCategory.PRIMARY || config.category == SenderCategory.UNKNOWN)
             }
         }
     }
@@ -78,8 +64,7 @@ class FocusRepository(context: Context) {
             notifications.filter { notif ->
                 val senderId = "${notif.packageName}:${notif.senderName}"
                 val config = senderScoreDao.getSenderScore(senderId)
-                // Default to SPAM if no config exists (or isPrimary is false)
-                config == null || config.isPrimary == false
+                config != null && config.category == SenderCategory.SPAM
             }
         }
     }
@@ -87,12 +72,20 @@ class FocusRepository(context: Context) {
     suspend fun saveNotification(senderName: String, packageName: String) {
         val senderId = "$packageName:$senderName"
         
-        // Ensure sender exists in config (defaults to Spam/Non-VIP)
-        if (senderScoreDao.getSenderScore(senderId) == null) {
-            senderScoreDao.upsert(SenderScoreEntity(senderId = senderId))
+        // 1. Get existing or create new info
+        var scoreEntity = senderScoreDao.getSenderScore(senderId)
+        if (scoreEntity == null) {
+            scoreEntity = SenderScoreEntity(senderId = senderId, category = SenderCategory.UNKNOWN, msgCount = 0)
         }
+        
+        // 2. Increment Message Count
+        val newScoreEntity = scoreEntity.copy(
+            msgCount = scoreEntity.msgCount + 1,
+            lastUpdated = System.currentTimeMillis()
+        )
+        senderScoreDao.upsert(newScoreEntity)
 
-        // Duplicate Check
+        // 3. Duplicate Check for Notification List
         val now = System.currentTimeMillis()
         val sinceTimestamp = now - DUPLICATE_WINDOW_MS
         val recentCount = notificationDao.countRecentFromSender(packageName, senderName, sinceTimestamp)
@@ -101,6 +94,7 @@ class FocusRepository(context: Context) {
             return
         }
 
+        // 4. Save Notification
         val entity = NotificationEntity(
             senderName = senderName,
             packageName = packageName,

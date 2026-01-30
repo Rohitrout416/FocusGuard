@@ -3,6 +3,13 @@ package com.example.focusguard.data
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
+enum class SenderCategory {
+    UNKNOWN, // Default for new senders. Shows in Primary list but silent. Blocked in Focus Mode.
+    SPAM,    // Hidden in Spam list. Blocked.
+    PRIMARY, // Shows in Primary list. Blocked in Focus Mode.
+    VIP      // Shows in Primary list. Allowed in Focus Mode.
+}
+
 /**
  * Stores configuration/categorization for a specific sender.
  * SenderID format: "packageName:senderName"
@@ -11,13 +18,11 @@ import androidx.room.PrimaryKey
 data class SenderScoreEntity(
     @PrimaryKey val senderId: String,
     
-    // Categorization: Primary vs Spam
-    // Default is FALSE (Spam/Secondary) as per requirement: "All other messages... automatically placed in Spam"
-    val isPrimary: Boolean = false, 
-
-    // Focus Mode Bypass
-    // Default is FALSE (Blocked during Focus)
-    val isVip: Boolean = false,
+    // Categorization
+    val category: SenderCategory = SenderCategory.UNKNOWN,
+    
+    // Stats
+    val msgCount: Int = 0, // Track message frequency
 
     val lastUpdated: Long = System.currentTimeMillis()
 )
