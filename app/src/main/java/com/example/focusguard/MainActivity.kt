@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -24,11 +26,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.focusguard.data.NotificationEntity
+import com.example.focusguard.data.SenderCategory
 import com.example.focusguard.ui.ClassificationBanner
 import com.example.focusguard.ui.MainViewModel
 import com.example.focusguard.ui.SettingsScreen
 import com.example.focusguard.ui.theme.FocusGuardTheme
 import com.example.focusguard.util.AppUtils
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -68,6 +72,9 @@ fun MainScreen(
     onNavigateToSettings: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     val isPermissionGranted = NotificationManagerCompat
         .getEnabledListenerPackages(context)
         .contains(context.packageName)
@@ -80,7 +87,6 @@ fun MainScreen(
     val uncategorizedSenders by viewModel.uncategorizedSenders.collectAsState()
     val dismissed by viewModel.dismissedSenders.collectAsState()
     
-    // Find first sender that is NOT dismissed
     val senderToClassify = uncategorizedSenders.firstOrNull { !dismissed.contains(it.senderId) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -98,7 +104,8 @@ fun MainScreen(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -127,7 +134,6 @@ fun MainScreen(
 
             // Classification Banner
             if (senderToClassify != null) {
-                // Extract clean name and app name
                 val packageName = senderToClassify.senderId.substringBefore(":")
                 val senderName = senderToClassify.senderId.substringAfter(":")
                 val appName = AppUtils.getAppName(context, packageName)
@@ -176,8 +182,18 @@ fun MainScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // List
+            // Clear All Logic
             val currentList = if (selectedTab == 0) priorityNotifications else spamNotifications
+            if (currentList.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { viewModel.clearAllNotifications() }) {
+                        Text("Clear All")
+                    }
+                }
+            }
             
             if (currentList.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
@@ -191,8 +207,26 @@ fun MainScreen(
                     items(currentList, key = { it.id }) { notification ->
                         NotificationItem(
                             notification = notification,
-                            onMarkPrimary = { viewModel.markAsPrimary(notification) },
-                            onMarkSpam = { viewModel.markAsSpam(notification) },
+                            onMarkPrimary = { viewModel.categorizeSender("${notification.packageName}:${notification.senderName}", SenderCategory.PRIMARY) },
+                            onMarkSpam = { viewModel.categorizeSender("${notification.packageName}:${notification.senderName}", SenderCategory.SPAM) },
+                            onMarkVip = {
+                                val senderId = "${notification.packageName}:${notification.senderName}"
+                                // Store previous category for Undo (Simplification: if tab 0 -> Primary, tab 1 -> Spam)
+                                val undoCategory = if (selectedTab == 0) SenderCategory.PRIMARY else SenderCategory.SPAM
+                                
+                                viewModel.categorizeSender(senderId, SenderCategory.VIP)
+                                
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = "Marked as VIP (Always Allowed)",
+                                        actionLabel = "UNDO",
+                                        duration = SnackbarDuration.Short
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        viewModel.categorizeSender(senderId, undoCategory)
+                                    }
+                                }
+                            },
                             onOpenApp = {
                                 val launchIntent = context.packageManager.getLaunchIntentForPackage(notification.packageName)
                                 if (launchIntent != null) context.startActivity(launchIntent)
@@ -210,6 +244,7 @@ fun NotificationItem(
     notification: NotificationEntity,
     onMarkPrimary: () -> Unit,
     onMarkSpam: () -> Unit,
+    onMarkVip: () -> Unit,
     onOpenApp: () -> Unit
 ) {
     val context = LocalContext.current
@@ -234,11 +269,17 @@ fun NotificationItem(
                 )
             }
             Row {
+                // Primary (Check)
                 IconButton(onClick = onMarkPrimary) {
-                    Icon(Icons.Default.Star, "Primary")
+                    Icon(Icons.Default.Check, "Mark Primary", tint = MaterialTheme.colorScheme.primary)
                 }
+                // VIP (Star)
+                IconButton(onClick = onMarkVip) {
+                    Icon(Icons.Default.Star, "Mark VIP", tint = MaterialTheme.colorScheme.tertiary)
+                }
+                // Spam (Block)
                 IconButton(onClick = onMarkSpam) {
-                    Icon(Icons.Default.Delete, "Spam")
+                    Icon(Icons.Default.Block, "Mark Spam", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }
