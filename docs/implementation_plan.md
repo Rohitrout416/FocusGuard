@@ -1,118 +1,109 @@
-# Implementation Plan - FocusGuard Metadata-Only Privacy Architecture
 
-## Goal
-Build a privacy-first notification filtering system using **metadata analytics** (sender frequency, timing) to rank importance WITHOUT reading message content. Auto-suppress during Focus Mode and learn from user feedback.
+# FocusGuard Implementation Plan (As Built)
 
-> [!IMPORTANT]
-> **Privacy**: Only `Sender`, `App`, `Timestamp` stored. **NO message content**.
+This document reflects the authoritative state of the FocusGuard application. It documents the implemented behavior, architecture, and design decisions.
 
----
+## 1. Core Focus Mode Behavior
+- **Lifecycle**: Focus Mode is toggled via a Switch on the main screen.
+    - **ON**: Blocks (hides) notifications from "Unknown" and "Spam" senders. Tracks session duration.
+    - **OFF**: Allows standard notification flow. Displays a "Quiet Session Summary".
+- **Blocking Logic**:
+    - **Primary**: Always allowed (non-disturbing).
+    - **VIP**: Always allowed (interrupts Focus Mode).
+    - **Unknown/Spam**: Blocked / Silenced during Focus Mode.
+- **Immediate Updates**: Toggling Focus Mode or changing sender categories updates the UI logic instantly.
+- **Permission Handling**: Checks `NotificationListenerService` permission on `ON_RESUME`. If missing, shows a red warning card with a direct link to Settings. Auto-refreshes state upon return.
 
-## Phase 0: Build Setup
+## 2. Message Classification System
+Senders are classified into one of four states (`SenderCategory`):
 
-### Dependencies (`libs.versions.toml`)
-| Library | Purpose |
-|---------|---------|
-| `room` (2.6.1) | Local database |
-| `ksp` | Room annotation processor |
-| `coroutines-android` | Async DB operations |
+1.  **UNKNOWN** (Default):
+    - New senders land here.
+    - Shown in the "Unknown" tab.
+    - **Behavior**: Silenced during Focus Mode.
+    - **Auto-Promotion**: If a sender sends highly frequent messages (>= 3), a "Classification Banner" appears suggesting action.
 
-### Plugin Configuration
-- Root `build.gradle.kts`: Declare `kotlin-android`, `ksp` with `apply false`
-- App `build.gradle.kts`: Apply `android.application`, `kotlin.android`, `kotlin.compose`, `ksp`
+2.  **PRIMARY**:
+    - For important but non-urgent contacts.
+    - **Behavior**: Allowed through Focus Mode filters.
 
----
+3.  **VIP**:
+    - For urgent/critical contacts.
+    - **Behavior**: Always allowed. Bypasses filters.
+    - **UI**: Marked with a Star icon.
 
-## Phase 1: Data Layer (Room)
+4.  **SPAM**:
+    - For unwanted automated messages.
+    - **Behavior**: Hidden/Silenced.
 
-### [NEW] `NotificationEntity.kt`
-```kotlin
-@Entity
-data class NotificationEntity(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val senderName: String,
-    val packageName: String,
-    val timestamp: Long
-    // NO content field
-)
-```
+**Actions**:
+- **Inline Actions**: Each notification card has "Primary", "VIP", and "Spam" AssistChips.
+- **Immediate Feedback**: Clicking an action immediately moves the item and shows a Snackbar with an **UNDO** action.
 
-### [NEW] `SenderScoreEntity.kt`
-```kotlin
-@Entity
-data class SenderScoreEntity(
-    @PrimaryKey val senderId: String, // "pkg:sender"
-    val baseScore: Int = 0,
-    val userFeedback: Int = 0, // +1 important, -1 spam
-    val msgCount: Int = 0,
-    val lastBurstTime: Long = 0,
-    val isSpam: Boolean = false
-)
-```
+## 3. UI Structure
+- **Architecture**: Single Activity (`MainActivity`) with Composable UI.
+- **Navigation**: 4-Tab Interface (`Unknown`, `Primary`, `VIP`, `Spam`).
+- **Main Components**:
+    - **TopAppBar**: Branded "FocusGuard" title.
+    - **Focus Switch**: Large toggle card with haptic feedback.
+    - **Focus Timer**: Visible only when Focus Mode is ON.
+    - **Notification List**: `LazyColumn` of `NotificationItem` cards.
+    - **Clear All**: Functionality to clear message list (does not delete sender rules).
 
-### [NEW] `AppDatabase.kt`
-- Room database with DAOs for both entities
-- Singleton pattern
+## 4. Focus Timer System
+- **Determinate Progress**: A premium Circular Progress Indicator that fills clockwise.
+- **Cycle**: Represents progress towards the next **2-hour milestone** (0% -> 100% over 2 hours).
+- **Animation**: Smooth `animateFloatAsState` transitions; calm and non-distracting (no infinite spinning).
+- **Display**: Shows "IN FOCUS" badge and current duration (e.g., "1:15").
 
----
+## 5. Focus Milestone System
+- **Purpose**: Gentle encouragement for long sessions.
+- **Mechanism**:
+    - **WorkManager**: Schedules a background check (`FocusMilestoneWorker`) every **2 hours**.
+    - **Notification**: "🎉 Great Focus Session. You've stayed focused for X hours."
+- **User Control**:
+    - **Inline Opt-Out**: Notification includes a "Disable Focus Milestones" action button.
+    - **Logic**: Uses `MilestoneActionReceiver` to update preferences and cancel the worker without opening the app.
+- **Default**: Enabled by default.
 
-## Phase 2: Repository Layer
+## 6. Session Summary (Quiet Closure)
+- **Trigger**: When Focus Mode is toggled **OFF**.
+- **UI**: A subtle, dismissible card appears below the toggle.
+- **Content**: "Focus session complete. Focused for [X]h [Y]m today."
+- **Constraint**: No system notification, sound, or vibration. Purely visual closure.
 
-### [NEW] `FocusRepository.kt`
-- `isFocusModeActive(): Boolean` (SharedPrefs)
-- `setFocusModeActive(Boolean)`
-- `saveNotification(entity)`
-- `getAllNotifications(): Flow<List>`
-- `updateSenderScore(senderId, feedback)`
+## 7. Haptic Feedback
+- **Triggers**:
+    - **Start Focus**: `LongPress` haptic feedback.
+    - **End Focus**: `LongPress` haptic feedback.
+- **Constraint**: No haptics for notifications or other actions to maintain calmness.
+- **Implementation**: Uses `LocalHapticFeedback.current.performHapticFeedback()`.
 
-### Ranking Formula
-```
-priority = baseScore + (msgCount * 0.1) + (userFeedback * 5) + burstBonus
-```
-Where `burstBonus = 10` if 3+ messages in 60 seconds.
+## 8. Visual & Branding
+- **Theme**: Unified Indigo/Violet palette (`Color.kt`). Dynamic Colors disabled for consistency.
+- **Typography**:
+    - **Font**: `FontFamily.SansSerif` (Clean, System).
+    - **Hierarchy**: Defined in `Type.kt` (Display, Headline, Body, Label).
+    - **Styling**: Optimized letter spacing and line height for readability.
+- **App Title**:
+    - Styled as a logotype: **Bold**, **Primary Color**, **Letter-spacing 1.sp**.
 
----
+## 9. Architecture & Technical Decisions
+- **Data Layer**:
+    - `AppDatabase`: Room Database (v5).
+    - `SenderScoreEntity`: Tracks `senderId`, `category`, and `msgCount`.
+    - `FocusRepository`: Central source of truth for Focus State, Metrics, and Classification.
+- **Background Work**: `WorkManager` for reliable milestone scheduling.
+- **State Management**: `MainViewModel` uses `StateFlow` for reactive UI updates.
+- **Event Handling**: `BroadcastReceiver` for notification action handling.
 
-## Phase 3: Service Layer
-
-### [MODIFY] `NotificationListener.kt`
-1. Check `repository.isFocusModeActive()`
-2. If OFF → return (let notification pass)
-3. If ON:
-   - `cancelNotification(sbn.key)`
-   - Extract metadata (title, package) — **NOT content**
-   - Save to `NotificationEntity`
-   - Update `SenderScoreEntity.msgCount++`
-
----
-
-## Phase 4: UI Layer
-
-### [NEW] `MainViewModel.kt`
-- Exposes `focusModeState: StateFlow<Boolean>`
-- Exposes `notifications: StateFlow<List<NotificationEntity>>`
-- Methods: `toggleFocusMode()`, `markImportant(id)`, `markSpam(id)`
-
-### [MODIFY] `MainActivity.kt`
-- Focus Mode toggle (Switch)
-- Blocked notifications list (LazyColumn)
-- Swipe actions: Mark Important / Mark Spam
-
----
-
-## Verification Plan
-
-### Privacy Check
-1. Send WhatsApp with "SECRET123"
-2. Open Database Inspector
-3. **Verify**: No "SECRET123" in any table
-
-### Focus Mode Check
-1. Toggle Focus ON
-2. Send notification
-3. **Verify**: Phone silent, no status bar icon
-4. Open app → notification in list
-
-### Learning Check
-1. Mark sender as Important
-2. **Verify**: Their messages rank higher
+## 10. Verification & Audit Notes
+- **Verified**:
+    - Focus Timer Animation (Smooth, determinate).
+    - Haptic Feedback on Physical Device (Toggle).
+    - Background Milestone Scheduling (via WorkManager Inspector).
+    - Notification Action (Disable Milestones).
+    - Permission Auto-Refresh Flow.
+- **Assumptions**:
+    - Standard Android "Touch Vibration" settings are enabled on the user device.
+    - Manufacturer battery savers do not aggressively kill the WorkManager job (standard battery optimization usage).
