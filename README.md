@@ -1,6 +1,9 @@
 # FocusGuard
 
-![FocusGuard Icon](docs\images\ic_launcher.png)
+<p align="center">
+  <img src="docs/images/ic_launcher.png" width="96" />
+</p>
+
 
 FocusGuard is a minimal, privacy-focused Android application designed to help you regain control over your attention. It acts as an intelligent shield against distracting notifications, allowing you to filter out noise while ensuring you never miss what's truly creating.
 
