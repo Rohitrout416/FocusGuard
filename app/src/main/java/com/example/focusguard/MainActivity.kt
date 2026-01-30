@@ -253,8 +253,34 @@ fun MainScreen(
                     items(currentList, key = { it.id }) { notification ->
                         NotificationItem(
                             notification = notification,
-                            onMarkPrimary = { viewModel.categorizeSender("${notification.packageName}:${notification.senderName}", SenderCategory.PRIMARY) },
-                            onMarkSpam = { viewModel.categorizeSender("${notification.packageName}:${notification.senderName}", SenderCategory.SPAM) },
+                            onMarkPrimary = {
+                                val senderId = "${notification.packageName}:${notification.senderName}"
+                                viewModel.categorizeSender(senderId, SenderCategory.PRIMARY)
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = "Marked as Primary",
+                                        actionLabel = "UNDO",
+                                        duration = SnackbarDuration.Short
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        viewModel.categorizeSender(senderId, currentCategory)
+                                    }
+                                }
+                            },
+                            onMarkSpam = {
+                                val senderId = "${notification.packageName}:${notification.senderName}"
+                                viewModel.categorizeSender(senderId, SenderCategory.SPAM)
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = "Marked as Spam",
+                                        actionLabel = "UNDO",
+                                        duration = SnackbarDuration.Short
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        viewModel.categorizeSender(senderId, currentCategory)
+                                    }
+                                }
+                            },
                             onMarkVip = {
                                 val senderId = "${notification.packageName}:${notification.senderName}"
                                 viewModel.categorizeSender(senderId, SenderCategory.VIP)
@@ -298,32 +324,75 @@ fun NotificationItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable { onOpenApp() }
+            .clickable { onOpenApp() },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(notification.senderName, fontWeight = FontWeight.Medium)
-                Text(
-                    "$appName • ${dateFormat.format(Date(notification.timestamp))}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+            // Header: Sender & App Info
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = notification.senderName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "$appName • ${dateFormat.format(Date(notification.timestamp))}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-            Row {
-                // Primary (Check)
-                IconButton(onClick = onMarkPrimary) {
-                    Icon(Icons.Default.Check, "Mark Primary", tint = MaterialTheme.colorScheme.primary)
-                }
-                // VIP (Star)
-                IconButton(onClick = onMarkVip) {
-                    Icon(Icons.Default.Star, "Mark VIP", tint = MaterialTheme.colorScheme.tertiary)
-                }
-                // Spam (Block/Delete)
-                IconButton(onClick = onMarkSpam) {
-                    Icon(Icons.Default.Delete, "Mark Spam", tint = MaterialTheme.colorScheme.error)
-                }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Actions Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Primary Action
+                AssistChip(
+                    onClick = onMarkPrimary,
+                    label = { Text("Primary") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        leadingIconContentColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                // VIP Action
+                AssistChip(
+                    onClick = onMarkVip,
+                    label = { Text("VIP") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp))
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        leadingIconContentColor = MaterialTheme.colorScheme.tertiary
+                    )
+                )
+
+                // Spam Action
+                AssistChip(
+                    onClick = onMarkSpam,
+                    label = { Text("Spam") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        leadingIconContentColor = MaterialTheme.colorScheme.error
+                    )
+                )
             }
         }
     }
