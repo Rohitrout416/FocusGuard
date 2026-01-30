@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
@@ -223,6 +224,47 @@ fun MainScreen(
                         onCheckedChange = { viewModel.toggleFocusMode() }
                     )
                     }
+            }
+            
+            // Session Summary (Quiet Closure)
+            val sessionSummary by viewModel.sessionSummary.collectAsState()
+            
+            if (sessionSummary != null) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    colors = CardDefaults.cardColors(
+                       containerColor = MaterialTheme.colorScheme.surface, // Calm, blends in
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Focus session complete", 
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = sessionSummary!!, 
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        IconButton(onClick = { viewModel.dismissSessionSummary() }) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.Close,
+                                contentDescription = "Dismiss"
+                            )
+                        }
+                    }
+                }
             }
             
             // Focus Metrics

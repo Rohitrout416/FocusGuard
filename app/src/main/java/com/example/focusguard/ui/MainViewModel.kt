@@ -52,11 +52,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _dismissedSenders = MutableStateFlow<Set<String>>(emptySet())
     val dismissedSenders: StateFlow<Set<String>> = _dismissedSenders
 
+    // Session Summary (Quiet Feedback)
+    private val _sessionSummary = MutableStateFlow<String?>(null)
+    val sessionSummary: StateFlow<String?> = _sessionSummary
+
     fun toggleFocusMode() {
         val newState = !_focusModeActive.value
         repository.setFocusModeActive(newState)
         _focusModeActive.value = newState
-        updateMetrics() // Update immediately on toggle
+        
+        updateMetrics() // Ensure repository state is current
+        
+        if (!newState) {
+            // Just finished a session
+            val metrics = repository.getFocusMetrics()
+            val dailyMs = metrics.second
+            
+            val hours = dailyMs / 3600000
+            val minutes = (dailyMs % 3600000) / 60000
+            
+            val timeString = if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+            _sessionSummary.value = "Focused for $timeString today"
+        } else {
+             _sessionSummary.value = null // Clear when starting new
+        }
+    }
+    
+    fun dismissSessionSummary() {
+        _sessionSummary.value = null
     }
 
     // Focus Metrics (Session, Daily Total)
