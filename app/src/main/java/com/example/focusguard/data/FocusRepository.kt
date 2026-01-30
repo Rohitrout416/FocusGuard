@@ -3,6 +3,7 @@ package com.example.focusguard.data
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import com.example.focusguard.util.AppUtils
 import com.example.focusguard.util.NotificationHelper
@@ -51,47 +52,69 @@ class FocusRepository(private val context: Context) {
 
     // ========== Notifications ==========
     
+    // Combine Notifications + Sender Scores for Reactive Updates
+    private val reactiveNotifications: Flow<List<NotificationEntity>> = 
+        notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
+            val senderMap = senders.associateBy { it.senderId }
+            notifications.map { notif ->
+                val senderId = "${notif.packageName}:${notif.senderName}"
+                // Attach current category to notification (logically)
+                // We filter based on the CURRENT score in the map
+                notif to (senderMap[senderId]?.category ?: SenderCategory.UNKNOWN)
+            }
+        }.map { pairs ->
+             // Flatten if needed or just keep pairs. 
+             // Actually, we just need to return notifications that match the filter.
+             // But wait, the downstream expects Flow<List<NotificationEntity>>.
+             // So we should filter inside the combine or map.
+             pairs.map { it.first } // precise filtering happens below
+        }
+
     // 🟡 UNKNOWN
     fun getUnknownNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().map { notifications ->
-            notifications.filter { notif ->
-                val senderId = "${notif.packageName}:${notif.senderName}"
-                val config = senderScoreDao.getSenderScore(senderId)
-                config != null && config.category == SenderCategory.UNKNOWN
-            }
+        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
+             val senderMap = senders.associateBy { it.senderId }
+             notifications.filter { notif ->
+                 val senderId = "${notif.packageName}:${notif.senderName}"
+                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
+                 category == SenderCategory.UNKNOWN
+             }
         }
     }
 
     // 🔵 PRIMARY
     fun getPrimaryNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().map { notifications ->
-            notifications.filter { notif ->
-                val senderId = "${notif.packageName}:${notif.senderName}"
-                val config = senderScoreDao.getSenderScore(senderId)
-                config != null && config.category == SenderCategory.PRIMARY
-            }
+        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
+             val senderMap = senders.associateBy { it.senderId }
+             notifications.filter { notif ->
+                 val senderId = "${notif.packageName}:${notif.senderName}"
+                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
+                 category == SenderCategory.PRIMARY
+             }
         }
     }
 
     // ⭐ VIP
     fun getVipNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().map { notifications ->
-            notifications.filter { notif ->
-                val senderId = "${notif.packageName}:${notif.senderName}"
-                val config = senderScoreDao.getSenderScore(senderId)
-                config != null && config.category == SenderCategory.VIP
-            }
+        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
+             val senderMap = senders.associateBy { it.senderId }
+             notifications.filter { notif ->
+                 val senderId = "${notif.packageName}:${notif.senderName}"
+                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
+                 category == SenderCategory.VIP
+             }
         }
     }
 
     // ⚫ SPAM
     fun getSpamNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().map { notifications ->
-            notifications.filter { notif ->
-                val senderId = "${notif.packageName}:${notif.senderName}"
-                val config = senderScoreDao.getSenderScore(senderId)
-                config != null && config.category == SenderCategory.SPAM
-            }
+        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
+             val senderMap = senders.associateBy { it.senderId }
+             notifications.filter { notif ->
+                 val senderId = "${notif.packageName}:${notif.senderName}"
+                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
+                 category == SenderCategory.SPAM
+             }
         }
     }
 

@@ -26,6 +26,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.focusguard.data.NotificationEntity
 import com.example.focusguard.data.SenderCategory
 import com.example.focusguard.ui.ClassificationBanner
@@ -76,9 +79,22 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val isPermissionGranted = NotificationManagerCompat
-        .getEnabledListenerPackages(context)
-        .contains(context.packageName)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isPermissionGranted by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isPermissionGranted = NotificationManagerCompat
+                    .getEnabledListenerPackages(context)
+                    .contains(context.packageName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val focusModeActive by viewModel.focusModeActive.collectAsState()
     
