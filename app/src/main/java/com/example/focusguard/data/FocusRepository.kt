@@ -4,8 +4,10 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import com.example.focusguard.util.AppUtils
+import com.example.focusguard.util.NotificationHelper
 
-class FocusRepository(context: Context) {
+class FocusRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("focusguard_prefs", Context.MODE_PRIVATE)
     private val database = AppDatabase.getDatabase(context)
     private val notificationDao = database.notificationDao()
@@ -49,16 +51,40 @@ class FocusRepository(context: Context) {
 
     // ========== Notifications ==========
     
+    // 🟡 UNKNOWN
+    fun getUnknownNotifications(): Flow<List<NotificationEntity>> {
+        return notificationDao.getAllNotifications().map { notifications ->
+            notifications.filter { notif ->
+                val senderId = "${notif.packageName}:${notif.senderName}"
+                val config = senderScoreDao.getSenderScore(senderId)
+                config != null && config.category == SenderCategory.UNKNOWN
+            }
+        }
+    }
+
+    // 🔵 PRIMARY
     fun getPrimaryNotifications(): Flow<List<NotificationEntity>> {
         return notificationDao.getAllNotifications().map { notifications ->
             notifications.filter { notif ->
                 val senderId = "${notif.packageName}:${notif.senderName}"
                 val config = senderScoreDao.getSenderScore(senderId)
-                config != null && (config.category == SenderCategory.VIP || config.category == SenderCategory.PRIMARY || config.category == SenderCategory.UNKNOWN)
+                config != null && config.category == SenderCategory.PRIMARY
             }
         }
     }
 
+    // ⭐ VIP
+    fun getVipNotifications(): Flow<List<NotificationEntity>> {
+        return notificationDao.getAllNotifications().map { notifications ->
+            notifications.filter { notif ->
+                val senderId = "${notif.packageName}:${notif.senderName}"
+                val config = senderScoreDao.getSenderScore(senderId)
+                config != null && config.category == SenderCategory.VIP
+            }
+        }
+    }
+
+    // ⚫ SPAM
     fun getSpamNotifications(): Flow<List<NotificationEntity>> {
         return notificationDao.getAllNotifications().map { notifications ->
             notifications.filter { notif ->
@@ -69,8 +95,14 @@ class FocusRepository(context: Context) {
         }
     }
 
+
+    init {
+        NotificationHelper.createNotificationChannel(context)
+    }
+
     suspend fun saveNotification(senderName: String, packageName: String) {
         val senderId = "$packageName:$senderName"
+        val appName = com.example.focusguard.util.AppUtils.getAppName(context, packageName)
         
         // 1. Get existing or create new info
         var scoreEntity = senderScoreDao.getSenderScore(senderId)
@@ -91,6 +123,10 @@ class FocusRepository(context: Context) {
         val recentCount = notificationDao.countRecentFromSender(packageName, senderName, sinceTimestamp)
         
         if (recentCount > 0) {
+             // Even if duplicate, check for Unknown alert (pure frequency)
+            if (newScoreEntity.category == SenderCategory.UNKNOWN && newScoreEntity.msgCount == 4) {
+                 com.example.focusguard.util.NotificationHelper.showRepeatedMessageAlert(context, senderName, appName, senderId.hashCode())
+            }
             return
         }
 
@@ -101,6 +137,25 @@ class FocusRepository(context: Context) {
             timestamp = now
         )
         notificationDao.insert(entity)
+        
+        // 5. Post-Save Alerts
+        
+        // Unknown: 4th message (Alert if not triggered above, but doing it here ensures it fires once per threshold)
+        // We checked above for duplicates. If we are here, it wasn't a duplicate.
+        // We should check again to be consistent? Or just check once?
+        // Let's rely on msgCount.
+        if (newScoreEntity.category == SenderCategory.UNKNOWN && newScoreEntity.msgCount == 4) {
+             com.example.focusguard.util.NotificationHelper.showRepeatedMessageAlert(context, senderName, appName, senderId.hashCode())
+        }
+        
+        // Primary: Escalation (3 messages in 60 seconds)
+        if (newScoreEntity.category == SenderCategory.PRIMARY) {
+            val oneMinuteAgo = System.currentTimeMillis() - 60000
+            val recentPrimary = notificationDao.countRecentFromSender(packageName, senderName, oneMinuteAgo)
+            if (recentPrimary >= 3) {
+                 com.example.focusguard.util.NotificationHelper.showPrimaryEscalationAlert(context, senderName, appName, senderId.hashCode())
+            }
+        }
     }
 
     suspend fun clearNotifications() {

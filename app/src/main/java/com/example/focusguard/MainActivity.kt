@@ -11,15 +11,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -80,7 +81,11 @@ fun MainScreen(
         .contains(context.packageName)
 
     val focusModeActive by viewModel.focusModeActive.collectAsState()
-    val priorityNotifications by viewModel.priorityNotifications.collectAsState()
+    
+    // Notification Streams
+    val unknownNotifications by viewModel.unknownNotifications.collectAsState()
+    val primaryNotifications by viewModel.primaryNotifications.collectAsState()
+    val vipNotifications by viewModel.vipNotifications.collectAsState()
     val spamNotifications by viewModel.spamNotifications.collectAsState()
     
     // Banner Logic
@@ -89,6 +94,7 @@ fun MainScreen(
     
     val senderToClassify = uncategorizedSenders.firstOrNull { !dismissed.contains(it.senderId) }
 
+    // Tabs: 0=Unknown, 1=Primary, 2=VIP, 3=Spam
     var selectedTab by remember { mutableIntStateOf(0) }
 
     Scaffold(
@@ -132,8 +138,8 @@ fun MainScreen(
                 }
             }
 
-            // Classification Banner
-            if (senderToClassify != null) {
+            // Classification Banner (Logic: Count >= 3)
+            if (senderToClassify != null && senderToClassify.msgCount >= 3) {
                 val packageName = senderToClassify.senderId.substringBefore(":")
                 val senderName = senderToClassify.senderId.substringAfter(":")
                 val appName = AppUtils.getAppName(context, packageName)
@@ -149,6 +155,21 @@ fun MainScreen(
                         viewModel.dismissBanner(senderToClassify.senderId)
                     }
                 )
+            } else if (senderToClassify != null) {
+                // Small subtle banner for new senders (Count < 3)
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("New sender detected: Review in 'Unknown' tab when convenient.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
 
             // Focus Mode Toggle
@@ -174,16 +195,35 @@ fun MainScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // Tabs
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Primary") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Spam") })
+            // 4 Tabs
+            ScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 0.dp) {
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Unknown") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Primary") })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
+                Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Spam") })
             }
 
             Spacer(Modifier.height(8.dp))
 
-            // Clear All Logic
-            val currentList = if (selectedTab == 0) priorityNotifications else spamNotifications
+            // List Selection
+            val currentList = when (selectedTab) {
+                0 -> unknownNotifications
+                1 -> primaryNotifications
+                2 -> vipNotifications
+                3 -> spamNotifications
+                else -> emptyList()
+            }
+            
+            // Undo Category Mapping
+            val currentCategory = when (selectedTab) {
+                0 -> SenderCategory.UNKNOWN
+                1 -> SenderCategory.PRIMARY
+                2 -> SenderCategory.VIP
+                3 -> SenderCategory.SPAM
+                else -> SenderCategory.UNKNOWN
+            }
+            
+            // Clear All Button
             if (currentList.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -198,7 +238,13 @@ fun MainScreen(
             if (currentList.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                     Text(
-                        if (selectedTab == 0) "No primary messages" else "No spam messages",
+                        when (selectedTab) {
+                            0 -> "No new senders"
+                            1 -> "No primary messages"
+                            2 -> "No VIP messages"
+                            3 -> "No spam messages"
+                            else -> "Empty"
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -211,9 +257,6 @@ fun MainScreen(
                             onMarkSpam = { viewModel.categorizeSender("${notification.packageName}:${notification.senderName}", SenderCategory.SPAM) },
                             onMarkVip = {
                                 val senderId = "${notification.packageName}:${notification.senderName}"
-                                // Store previous category for Undo (Simplification: if tab 0 -> Primary, tab 1 -> Spam)
-                                val undoCategory = if (selectedTab == 0) SenderCategory.PRIMARY else SenderCategory.SPAM
-                                
                                 viewModel.categorizeSender(senderId, SenderCategory.VIP)
                                 
                                 scope.launch {
@@ -223,7 +266,7 @@ fun MainScreen(
                                         duration = SnackbarDuration.Short
                                     )
                                     if (result == SnackbarResult.ActionPerformed) {
-                                        viewModel.categorizeSender(senderId, undoCategory)
+                                        viewModel.categorizeSender(senderId, currentCategory)
                                     }
                                 }
                             },
@@ -277,9 +320,9 @@ fun NotificationItem(
                 IconButton(onClick = onMarkVip) {
                     Icon(Icons.Default.Star, "Mark VIP", tint = MaterialTheme.colorScheme.tertiary)
                 }
-                // Spam (Block)
+                // Spam (Block/Delete)
                 IconButton(onClick = onMarkSpam) {
-                    Icon(Icons.Default.Block, "Mark Spam", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Default.Delete, "Mark Spam", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }

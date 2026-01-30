@@ -22,8 +22,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val focusModeActive: StateFlow<Boolean> = _focusModeActive
 
     // Notifications (Filtered)
-    val priorityNotifications: StateFlow<List<NotificationEntity>> = repository
+    val unknownNotifications: StateFlow<List<NotificationEntity>> = repository
+        .getUnknownNotifications()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val primaryNotifications: StateFlow<List<NotificationEntity>> = repository
         .getPrimaryNotifications()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val vipNotifications: StateFlow<List<NotificationEntity>> = repository
+        .getVipNotifications()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val spamNotifications: StateFlow<List<NotificationEntity>> = repository
@@ -68,6 +76,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val senderId = "${notification.packageName}:${notification.senderName}"
             repository.setSenderCategory(senderId, SenderCategory.SPAM)
+        }
+    }
+    
+    fun markAsVip(notification: NotificationEntity) {
+        viewModelScope.launch {
+            val senderId = "${notification.packageName}:${notification.senderName}"
+            repository.setSenderCategory(senderId, SenderCategory.VIP)
         }
     }
 
