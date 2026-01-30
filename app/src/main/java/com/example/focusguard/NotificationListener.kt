@@ -3,50 +3,103 @@ package com.example.focusguard
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import com.example.focusguard.data.FocusRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
+/**
+ * Intercepts all notifications.
+ * When Focus Mode is ON: suppresses all clearable notifications and stores metadata.
+ * Uses a cached VIP list for synchronous decision making.
+ */
 class NotificationListener : NotificationListenerService() {
 
-    // This function is called by the system whenever a new notification is posted.
-    override fun onNotificationPosted(sbn: StatusBarNotification) {
-        super.onNotificationPosted(sbn)
+    private lateinit var repository: FocusRepository
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    // VIP Cache for fast lookup
+    private var vipCache: Set<String> = emptySet()
+    
+    // Deduplication: track recent senders
+    private val recentSenders = mutableMapOf<String, Long>()
+    private val SENDER_COOLDOWN_MS = 2000L
 
-        // Initialize Repository (In a real app, use Dependency Injection like Hilt)
-        val repository = com.example.focusguard.data.FocusRepository(applicationContext)
-
-        // 1. CHECK FOCUS MODE
-        if (!repository.isFocusModeActive()) {
-            return // Let it pass if not in focus mode
-        }
-
-        // 2. EXTRACT METADATA (Privacy-First)
-        val packageName = sbn.packageName
-        val notification = sbn.notification
-        val extras = notification.extras
-        val title = extras.getString("android.title") ?: "Unknown"
-        // NOTICE: We are NOT extracting 'android.text' to respect privacy.
-        // We only care about WHO sent it, not WHAT they said.
-
-        // 3. AUTO-SUPPRESS (Dismiss from status bar)
-        cancelNotification(sbn.key)
+    override fun onCreate() {
+        super.onCreate()
+        repository = FocusRepository(applicationContext)
+        Log.d("FocusGuard", "NotificationListener started")
         
-        // 4. STORE METADATA
-        // We need a coroutine scope since database ops are suspending
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            val entity = com.example.focusguard.data.NotificationEntity(
-                packageName = packageName,
-                senderName = title,
-                timestamp = System.currentTimeMillis(),
-                isPriority = false // Default for now
-            )
-            repository.saveNotification(entity)
-            Log.d("FocusGuard", "Suppressed & Stored: $title from $packageName")
+        // Start observing VIP list for cache
+        scope.launch {
+            repository.getVipSendersFlow().collect { vipSet ->
+                vipCache = vipSet
+                Log.d("FocusGuard", "VIP Cache updated: ${vipSet.size} senders")
+            }
         }
     }
 
-    // This is called when a notification is removed. We don't need it for now.
+    override fun onNotificationPosted(sbn: StatusBarNotification) {
+        super.onNotificationPosted(sbn)
+
+        // 1. Check Focus Mode FIRST
+        if (!repository.isFocusModeActive()) {
+            return
+        }
+
+        val packageName = sbn.packageName
+        val extras = sbn.notification.extras
+        val senderName = extras.getString("android.title") ?: "Unknown"
+        val senderKey = "$packageName:$senderName"
+
+        // 2. VIP CHECK (Fast Path - In Memory)
+        if (vipCache.contains(senderKey)) {
+            Log.d("FocusGuard", "VIP ALLOWED: $senderName")
+            return // Let it pass through
+        }
+
+        // 3. BLOCKING LOGIC: Cancel immediately if clearable
+        if (sbn.isClearable) {
+            try {
+                cancelNotification(sbn.key)
+                Log.d("FocusGuard", "BLOCKED: $senderName")
+            } catch (e: Exception) {
+                Log.e("FocusGuard", "Failed to cancel: ${e.message}")
+            }
+        } else {
+            // Don't modify ongoing (music/calls)
+            return 
+        }
+
+        // 4. STORAGE LOGIC: Save if unique and not summary
+        val now = System.currentTimeMillis()
+
+        // Sync check for cooldown (filtering saving, not blocking)
+        synchronized(recentSenders) {
+            val lastTime = recentSenders[senderKey]
+            if (lastTime != null && (now - lastTime) < SENDER_COOLDOWN_MS) {
+                Log.d("FocusGuard", "SKIP SAVING (Duplicate): $senderName")
+                return
+            }
+            recentSenders[senderKey] = now
+            if (recentSenders.size > 50) recentSenders.entries.removeIf { now - it.value > 60_000 }
+        }
+
+        // Async Save
+        scope.launch {
+            try {
+                // Don't save summaries
+                val isSummary = sbn.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0
+                if (!isSummary) {
+                    repository.saveNotification(senderName, packageName)
+                }
+            } catch (e: Exception) {
+                Log.e("FocusGuard", "Error saving: ${e.message}")
+            }
+        }
+    }
+
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         super.onNotificationRemoved(sbn)
     }

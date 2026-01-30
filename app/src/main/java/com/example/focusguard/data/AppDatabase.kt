@@ -8,29 +8,49 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface NotificationDao {
-    @Insert
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(notification: NotificationEntity)
 
     @Query("SELECT * FROM notification_table ORDER BY timestamp DESC")
-    fun getAllNotifications(): kotlinx.coroutines.flow.Flow<List<NotificationEntity>>
+    fun getAllNotifications(): Flow<List<NotificationEntity>>
     
     @Query("DELETE FROM notification_table")
     suspend fun clearAll()
+
+    @Query("DELETE FROM notification_table WHERE id = :id")
+    suspend fun delete(id: Int)
+
+    @Query("""
+        SELECT COUNT(*) FROM notification_table 
+        WHERE packageName = :packageName 
+        AND senderName = :senderName 
+        AND timestamp > :sinceTimestamp
+    """)
+    suspend fun countRecentFromSender(packageName: String, senderName: String, sinceTimestamp: Long): Int
 }
 
 @Dao
 interface SenderScoreDao {
     @Query("SELECT * FROM sender_score_table WHERE senderId = :id LIMIT 1")
     suspend fun getSenderScore(id: String): SenderScoreEntity?
+    
+    // Get all senders with score >= 3 (VIPs)
+    @Query("SELECT senderId FROM sender_score_table WHERE userFeedback >= 3")
+    fun getVipSenderIds(): Flow<List<String>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdate(senderScore: SenderScoreEntity)
+    suspend fun upsert(senderScore: SenderScoreEntity)
 }
 
-@Database(entities = [NotificationEntity::class, SenderScoreEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [NotificationEntity::class, SenderScoreEntity::class], 
+    version = 2, 
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun senderScoreDao(): SenderScoreDao
@@ -45,7 +65,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "focus_guard_database"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }
