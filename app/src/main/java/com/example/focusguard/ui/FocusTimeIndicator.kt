@@ -31,6 +31,18 @@ fun FocusTimeIndicator(
     } else {
         "${sessionMin}m"
     }
+    
+    // Progress towards 2-hour milestone (0.0 to 1.0)
+    // 2 hours = 120 minutes = 7,200,000 ms
+    val milestoneIntervalMs = 7200000f
+    val rawProgress = (currentSessionMs % milestoneIntervalMs) / milestoneIntervalMs
+    
+    // Smooth animation
+    val progress by animateFloatAsState(
+        targetValue = rawProgress.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 1000, easing = LinearOutSlowInEasing),
+        label = "progress"
+    )
 
     Row(
         modifier = Modifier
@@ -39,11 +51,22 @@ fun FocusTimeIndicator(
         horizontalArrangement = Arrangement.Center
     ) {
         Box(contentAlignment = Alignment.Center) {
-            // Indeterminate ring for active "pulse" feel
+            // Background Track (faint ring)
             androidx.compose.material3.CircularProgressIndicator(
-                modifier = Modifier.size(140.dp),
+                progress = { 1f },
+                modifier = Modifier.size(160.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                strokeWidth = 6.dp, // Slightly thicker track
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+            
+            // Determinate Progress Ring (fills up)
+            androidx.compose.material3.CircularProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.size(160.dp),
                 color = MaterialTheme.colorScheme.primary,
-                strokeWidth = 4.dp
+                strokeWidth = 6.dp,
+                trackColor = Color.Transparent, // Track is handled by the background ring above
             )
             
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -56,7 +79,7 @@ fun FocusTimeIndicator(
                 )
                 Text(
                     text = formattedTime,
-                    style = MaterialTheme.typography.displaySmall, // Bigger font
+                    style = MaterialTheme.typography.displaySmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
                 )
