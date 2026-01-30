@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.focusguard.data.NotificationEntity
 import com.example.focusguard.data.SenderCategory
 import com.example.focusguard.ui.ClassificationBanner
+import com.example.focusguard.ui.FocusTimeIndicator
 import com.example.focusguard.ui.MainViewModel
 import com.example.focusguard.ui.SettingsScreen
 import com.example.focusguard.ui.theme.FocusGuardTheme
@@ -207,7 +208,17 @@ fun MainScreen(
                         checked = focusModeActive,
                         onCheckedChange = { viewModel.toggleFocusMode() }
                     )
-                }
+                    }
+            }
+            
+            // Focus Metrics
+            val focusMetrics by viewModel.focusMetrics.collectAsState()
+            
+            if (focusModeActive) {
+                FocusTimeIndicator(
+                    currentSessionMs = focusMetrics.first,
+                    dailyTotalMs = focusMetrics.second
+                )
             }
 
             Spacer(Modifier.height(16.dp))

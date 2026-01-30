@@ -56,6 +56,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val newState = !_focusModeActive.value
         repository.setFocusModeActive(newState)
         _focusModeActive.value = newState
+        updateMetrics() // Update immediately on toggle
+    }
+
+    // Focus Metrics (Session, Daily Total)
+    private val _focusMetrics = MutableStateFlow(Pair(0L, 0L))
+    val focusMetrics: StateFlow<Pair<Long, Long>> = _focusMetrics
+
+    init {
+        // Ticker to update time every minute
+        viewModelScope.launch {
+            while (true) {
+                if (_focusModeActive.value) {
+                    updateMetrics()
+                }
+                kotlinx.coroutines.delay(60000) // 1 minute delay
+            }
+        }
+    }
+
+    private fun updateMetrics() {
+        _focusMetrics.value = repository.getFocusMetrics()
     }
 
     fun clearAllNotifications() {

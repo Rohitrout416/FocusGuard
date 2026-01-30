@@ -17,6 +17,9 @@ class FocusRepository(private val context: Context) {
     companion object {
         private const val KEY_FOCUS_MODE = "focus_mode_active"
         private const val DUPLICATE_WINDOW_MS = 5000L
+        private const val KEY_FOCUS_START_TIME = "focus_start_time"
+        private const val KEY_DAILY_FOCUS_TOTAL = "daily_focus_total"
+        private const val KEY_LAST_RESET_DAY = "last_reset_day"
     }
 
     // ========== Focus Mode ==========
@@ -26,7 +29,53 @@ class FocusRepository(private val context: Context) {
     }
 
     fun setFocusModeActive(active: Boolean) {
-        prefs.edit().putBoolean(KEY_FOCUS_MODE, active).apply()
+        val now = System.currentTimeMillis()
+        if (active) {
+            // Start Session
+            prefs.edit()
+                .putBoolean(KEY_FOCUS_MODE, true)
+                .putLong(KEY_FOCUS_START_TIME, now)
+                .apply()
+        } else {
+            // End Session
+            val startTime = prefs.getLong(KEY_FOCUS_START_TIME, 0L)
+            if (startTime > 0) {
+                val sessionDuration = now - startTime
+                // Update Daily Total
+                val today = java.time.LocalDate.now().toString()
+                val lastResetDay = prefs.getString(KEY_LAST_RESET_DAY, "")
+                
+                var currentTotal = if (lastResetDay == today) prefs.getLong(KEY_DAILY_FOCUS_TOTAL, 0L) else 0L
+                currentTotal += sessionDuration
+                
+                prefs.edit()
+                    .putBoolean(KEY_FOCUS_MODE, false)
+                    .putLong(KEY_FOCUS_START_TIME, 0L)
+                    .putString(KEY_LAST_RESET_DAY, today)
+                    .putLong(KEY_DAILY_FOCUS_TOTAL, currentTotal)
+                    .apply()
+            } else {
+                prefs.edit().putBoolean(KEY_FOCUS_MODE, false).apply()
+            }
+        }
+    }
+
+    fun getFocusMetrics(): Pair<Long, Long> {
+        val focusActive = isFocusModeActive()
+        val now = System.currentTimeMillis()
+        
+        // 1. Calculate Current Session
+        val startTime = prefs.getLong(KEY_FOCUS_START_TIME, 0L)
+        val currentSessionMs = if (focusActive && startTime > 0) now - startTime else 0L
+        
+        // 2. Calculate Daily Total
+        val today = java.time.LocalDate.now().toString()
+        val lastResetDay = prefs.getString(KEY_LAST_RESET_DAY, "")
+        val storedTotal = if (lastResetDay == today) prefs.getLong(KEY_DAILY_FOCUS_TOTAL, 0L) else 0L
+        
+        val totalDailyMs = storedTotal + currentSessionMs
+        
+        return Pair(currentSessionMs, totalDailyMs)
     }
 
     // ========== Sender Configuration ==========
