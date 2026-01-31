@@ -40,19 +40,24 @@ object NotificationHelper {
     }
 
     fun getFocusStatusNotification(context: Context): android.app.Notification {
+        // Ensure channel exists before building notification
+        createNotificationChannel(context)
+        
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
         return NotificationCompat.Builder(context, FOCUS_STATUS_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(R.drawable.ic_launcher_foreground) // Use app icon
             .setContentTitle("Focus Mode Active")
             .setContentText("Notifications are being filtered")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 

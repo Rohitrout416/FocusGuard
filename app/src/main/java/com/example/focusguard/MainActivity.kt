@@ -45,9 +45,15 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : ComponentActivity() {
+    
+    private val focusRepository by lazy { com.example.focusguard.data.FocusRepository(this) }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Create notification channels FIRST (before any service can start)
+        com.example.focusguard.util.NotificationHelper.createNotificationChannel(this)
         
         // Request notification permission on Android 13+
         requestNotificationPermission()
@@ -59,11 +65,57 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.d("FocusGuard", "MainActivity.onResume called")
+        // Ensure service is running if Focus Mode is ON
+        ensureFocusServiceState()
+    }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int, 
+        permissions: Array<String>, 
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        android.util.Log.d("FocusGuard", "onRequestPermissionsResult: requestCode=$requestCode")
+        
+        if (requestCode == 100 && grantResults.isNotEmpty() && 
+            grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            android.util.Log.d("FocusGuard", "POST_NOTIFICATIONS permission granted, ensuring service state")
+            // Permission was just granted - restart service if Focus Mode is ON
+            ensureFocusServiceState()
+        }
+    }
+    
+    private fun ensureFocusServiceState() {
+        val isFocusOn = focusRepository.isFocusModeActive()
+        android.util.Log.d("FocusGuard", "ensureFocusServiceState: isFocusOn=$isFocusOn")
+        
+        if (isFocusOn) {
+            // Focus Mode is ON, ensure service is running
+            try {
+                val serviceIntent = android.content.Intent(this, com.example.focusguard.service.FocusStatusService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+                android.util.Log.d("FocusGuard", "MainActivity: Started/restarted FocusStatusService")
+            } catch (e: Exception) {
+                android.util.Log.e("FocusGuard", "MainActivity: Failed to ensure service: ${e.message}")
+            }
+        }
+    }
+    
     private fun requestNotificationPermission() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) 
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                android.util.Log.d("FocusGuard", "Requesting POST_NOTIFICATIONS permission")
                 requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
+            } else {
+                android.util.Log.d("FocusGuard", "POST_NOTIFICATIONS already granted")
             }
         }
     }
