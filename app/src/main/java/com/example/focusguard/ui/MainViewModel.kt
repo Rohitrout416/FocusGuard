@@ -10,6 +10,9 @@ import com.example.focusguard.data.SenderScoreEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -87,14 +90,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val focusMetrics: StateFlow<Pair<Long, Long>> = _focusMetrics
 
     init {
-        // Ticker to update time every minute
+        // Reactive ticker: only runs when Focus Mode is active
         viewModelScope.launch {
-            while (true) {
-                if (_focusModeActive.value) {
-                    updateMetrics()
+            _focusModeActive
+                .flatMapLatest { isActive ->
+                    if (isActive) {
+                        // Emit immediately, then every 60 seconds
+                        flow {
+                            while (true) {
+                                emit(Unit)
+                                kotlinx.coroutines.delay(60000)
+                            }
+                        }
+                    } else {
+                        emptyFlow()
+                    }
                 }
-                kotlinx.coroutines.delay(60000) // 1 minute delay
-            }
+                .collect { updateMetrics() }
         }
     }
 

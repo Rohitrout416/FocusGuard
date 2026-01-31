@@ -63,7 +63,7 @@ interface SenderScoreDao {
 
 @Database(
     entities = [NotificationEntity::class, SenderScoreEntity::class], 
-    version = 5, 
+    version = 6, 
     exportSchema = false
 )
 @TypeConverters(Converters::class)

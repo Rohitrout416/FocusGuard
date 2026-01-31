@@ -1,6 +1,7 @@
 package com.example.focusguard.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 enum class SenderCategory {
@@ -13,8 +14,12 @@ enum class SenderCategory {
 /**
  * Stores configuration/categorization for a specific sender.
  * SenderID format: "packageName:senderName"
+ * Index on category for fast VIP/UNKNOWN lookups.
  */
-@Entity(tableName = "sender_score_table")
+@Entity(
+    tableName = "sender_score_table",
+    indices = [Index(value = ["category"])]
+)
 data class SenderScoreEntity(
     @PrimaryKey val senderId: String,
     

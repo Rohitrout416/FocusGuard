@@ -270,7 +270,8 @@ fun MainScreen(
                 }
             }
 
-            // Focus Mode Toggle
+            // Focus Mode Toggle - hoist hapticFeedback for stability
+            val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
             Card(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -284,7 +285,6 @@ fun MainScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                    val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
                     Switch(
                         checked = focusModeActive,
                         onCheckedChange = { 
@@ -292,7 +292,7 @@ fun MainScreen(
                             viewModel.toggleFocusMode() 
                         }
                     )
-                    }
+                }
             }
             
             // Session Summary (Quiet Closure)
@@ -358,22 +358,26 @@ fun MainScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // List Selection
-            val currentList = when (selectedTab) {
-                0 -> unknownNotifications
-                1 -> primaryNotifications
-                2 -> vipNotifications
-                3 -> spamNotifications
-                else -> emptyList()
+            // List Selection - remember to avoid recalculation on unrelated recompositions
+            val currentList = remember(selectedTab, unknownNotifications, primaryNotifications, vipNotifications, spamNotifications) {
+                when (selectedTab) {
+                    0 -> unknownNotifications
+                    1 -> primaryNotifications
+                    2 -> vipNotifications
+                    3 -> spamNotifications
+                    else -> emptyList()
+                }
             }
             
-            // Undo Category Mapping
-            val currentCategory = when (selectedTab) {
-                0 -> SenderCategory.UNKNOWN
-                1 -> SenderCategory.PRIMARY
-                2 -> SenderCategory.VIP
-                3 -> SenderCategory.SPAM
-                else -> SenderCategory.UNKNOWN
+            // Undo Category Mapping - remember for stability
+            val currentCategory = remember(selectedTab) {
+                when (selectedTab) {
+                    0 -> SenderCategory.UNKNOWN
+                    1 -> SenderCategory.PRIMARY
+                    2 -> SenderCategory.VIP
+                    3 -> SenderCategory.SPAM
+                    else -> SenderCategory.UNKNOWN
+                }
             }
             
             // Clear All Button

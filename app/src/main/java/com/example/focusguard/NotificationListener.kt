@@ -7,6 +7,8 @@ import com.example.focusguard.data.FocusRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -17,7 +19,8 @@ import kotlinx.coroutines.launch
 class NotificationListener : NotificationListenerService() {
 
     private lateinit var repository: FocusRepository
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val serviceJob = SupervisorJob()
+    private val scope = CoroutineScope(Dispatchers.IO + serviceJob)
     
     // VIP Cache for fast lookup
     private var vipCache: Set<String> = emptySet()
@@ -31,13 +34,21 @@ class NotificationListener : NotificationListenerService() {
         repository = FocusRepository(applicationContext)
         Log.d("FocusGuard", "NotificationListener started")
         
-        // Start observing VIP list for cache
+        // Start observing VIP list for cache (with distinctUntilChanged to reduce updates)
         scope.launch {
-            repository.getVipSendersFlow().collect { vipSet ->
-                vipCache = vipSet
-                Log.d("FocusGuard", "VIP Cache updated: ${vipSet.size} senders")
-            }
+            repository.getVipSendersFlow()
+                .distinctUntilChanged()
+                .collect { vipSet ->
+                    vipCache = vipSet
+                    Log.d("FocusGuard", "VIP Cache updated: ${vipSet.size} senders")
+                }
         }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceJob.cancel() // Cancel all coroutines to prevent leaks
+        Log.d("FocusGuard", "NotificationListener destroyed")
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {

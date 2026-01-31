@@ -64,10 +64,15 @@ class FocusRepository(private val context: Context) {
                 Log.e("FocusGuard", "Failed to start FocusStatusService: ${e.message}")
             }
 
-            // Schedule Milestone Work (if enabled)
+            // Schedule Milestone Work (if enabled) with battery constraints
             if (areMilestonesEnabled()) {
+                val constraints = androidx.work.Constraints.Builder()
+                    .setRequiresBatteryNotLow(true) // Don't run on low battery
+                    .build()
+                    
                 val milestoneWork = androidx.work.OneTimeWorkRequestBuilder<com.example.focusguard.workers.FocusMilestoneWorker>()
                     .setInitialDelay(2, java.util.concurrent.TimeUnit.HOURS)
+                    .setConstraints(constraints)
                     .build()
                 
                 workManager.enqueueUniqueWork(
@@ -154,69 +159,44 @@ class FocusRepository(private val context: Context) {
 
     // ========== Notifications ==========
     
-    // Combine Notifications + Sender Scores for Reactive Updates
-    private val reactiveNotifications: Flow<List<NotificationEntity>> = 
+    /**
+     * Single shared Flow that combines notifications + sender categories once.
+     * All filtered flows derive from this to avoid redundant combine operations.
+     */
+    private val categorizedNotifications: Flow<List<Pair<NotificationEntity, SenderCategory>>> = 
         notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
             val senderMap = senders.associateBy { it.senderId }
             notifications.map { notif ->
                 val senderId = "${notif.packageName}:${notif.senderName}"
-                // Attach current category to notification (logically)
-                // We filter based on the CURRENT score in the map
                 notif to (senderMap[senderId]?.category ?: SenderCategory.UNKNOWN)
             }
-        }.map { pairs ->
-             // Flatten if needed or just keep pairs. 
-             // Actually, we just need to return notifications that match the filter.
-             // But wait, the downstream expects Flow<List<NotificationEntity>>.
-             // So we should filter inside the combine or map.
-             pairs.map { it.first } // precise filtering happens below
         }
 
-    // 🟡 UNKNOWN
+    // 🟡 UNKNOWN - derive from shared flow
     fun getUnknownNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
-             val senderMap = senders.associateBy { it.senderId }
-             notifications.filter { notif ->
-                 val senderId = "${notif.packageName}:${notif.senderName}"
-                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
-                 category == SenderCategory.UNKNOWN
-             }
+        return categorizedNotifications.map { pairs ->
+            pairs.filter { it.second == SenderCategory.UNKNOWN }.map { it.first }
         }
     }
 
-    // 🔵 PRIMARY
+    // 🔵 PRIMARY - derive from shared flow
     fun getPrimaryNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
-             val senderMap = senders.associateBy { it.senderId }
-             notifications.filter { notif ->
-                 val senderId = "${notif.packageName}:${notif.senderName}"
-                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
-                 category == SenderCategory.PRIMARY
-             }
+        return categorizedNotifications.map { pairs ->
+            pairs.filter { it.second == SenderCategory.PRIMARY }.map { it.first }
         }
     }
 
-    // ⭐ VIP
+    // ⭐ VIP - derive from shared flow
     fun getVipNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
-             val senderMap = senders.associateBy { it.senderId }
-             notifications.filter { notif ->
-                 val senderId = "${notif.packageName}:${notif.senderName}"
-                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
-                 category == SenderCategory.VIP
-             }
+        return categorizedNotifications.map { pairs ->
+            pairs.filter { it.second == SenderCategory.VIP }.map { it.first }
         }
     }
 
-    // ⚫ SPAM
+    // ⚫ SPAM - derive from shared flow
     fun getSpamNotifications(): Flow<List<NotificationEntity>> {
-        return notificationDao.getAllNotifications().combine(senderScoreDao.getAllSenders()) { notifications, senders ->
-             val senderMap = senders.associateBy { it.senderId }
-             notifications.filter { notif ->
-                 val senderId = "${notif.packageName}:${notif.senderName}"
-                 val category = senderMap[senderId]?.category ?: SenderCategory.UNKNOWN
-                 category == SenderCategory.SPAM
-             }
+        return categorizedNotifications.map { pairs ->
+            pairs.filter { it.second == SenderCategory.SPAM }.map { it.first }
         }
     }
 
