@@ -51,6 +51,19 @@ class FocusRepository(private val context: Context) {
                 .putLong(KEY_FOCUS_START_TIME, now)
                 .apply()
             
+            // Start Foreground Service for persistent notification
+            try {
+                val serviceIntent = android.content.Intent(context, com.example.focusguard.service.FocusStatusService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                Log.d("FocusGuard", "FocusStatusService start requested")
+            } catch (e: Exception) {
+                Log.e("FocusGuard", "Failed to start FocusStatusService: ${e.message}")
+            }
+
             // Schedule Milestone Work (if enabled)
             if (areMilestonesEnabled()) {
                 val milestoneWork = androidx.work.OneTimeWorkRequestBuilder<com.example.focusguard.workers.FocusMilestoneWorker>()
@@ -68,6 +81,14 @@ class FocusRepository(private val context: Context) {
             // End Session
             val startTime = prefs.getLong(KEY_FOCUS_START_TIME, 0L)
             
+            // Stop Foreground Service
+            try {
+                context.stopService(android.content.Intent(context, com.example.focusguard.service.FocusStatusService::class.java))
+                Log.d("FocusGuard", "FocusStatusService stop requested")
+            } catch (e: Exception) {
+                Log.e("FocusGuard", "Failed to stop FocusStatusService: ${e.message}")
+            }
+
             // Cancel Milestone Work
             workManager.cancelUniqueWork("focus_milestone_work")
             
