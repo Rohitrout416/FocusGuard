@@ -5,8 +5,9 @@ This document reflects the authoritative state of the FocusGuard application. It
 
 ## 1. Core Focus Mode Behavior
 - **Lifecycle**: Focus Mode is toggled via a Switch on the main screen.
-    - **ON**: Blocks (hides) notifications from "Unknown" and "Spam" senders. Tracks session duration.
-    - **OFF**: Allows standard notification flow. Displays a "Quiet Session Summary".
+    - **ON**: Blocks (hides) notifications from "Unknown" and "Spam" senders. Tracks session duration. Starts a **Foreground Service** to show a persistent status notification.
+    - **OFF**: Allows standard notification flow. Displays a "Quiet Session Summary". Stops the Foreground Service.
+- **Persistent Status**: A persistent "Focus Mode Active" notification is shown while enabled (Low Importance, Silent) to reassure the user and prevent process killing.
 - **Blocking Logic**:
     - **Primary**: Always allowed (non-disturbing).
     - **VIP**: Always allowed (interrupts Focus Mode).
